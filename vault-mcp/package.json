@@ -1,0 +1,24 @@
+{
+  "name": "vault-mcp",
+  "version": "2.0.0",
+  "description": "Read-surface MCP server for the compliance knowledge vault (mcp-read-surface-spec.md v2.0.0)",
+  "type": "module",
+  "bin": { "vault-mcp": "dist/index.js" },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "node --test dist/test/"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-sqlite3": "^12.4.1",
+    "gray-matter": "^4.0.3",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
