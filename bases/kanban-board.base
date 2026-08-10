@@ -1,0 +1,73 @@
+# kanban-board.base — Bases view definition for the note-per-card board.
+# Save as: 00-system/bases/kanban-board.base
+#
+# NOTE: The `kanban` view type is provided by the Bases kanban community plugin
+# (core Bases ships table/cards/list; the kanban layout registers as an
+# additional view type). If your pinned plugin registers a different type
+# string, adjust `type:` below — everything else is core Bases syntax.
+# Column grouping, card sort, and shown properties are all driven by the
+# task-note frontmatter defined in tpl-kanban-card.md.
+
+filters:
+  and:
+    - type == "task"
+    - status != "done"
+    - file.inFolder("20-tasks")
+
+formulas:
+  age_days: (now() - created).days
+
+properties:
+  status:
+    displayName: Status
+  priority:
+    displayName: P
+  due:
+    displayName: Due
+
+views:
+  - type: kanban
+    name: Board
+    groupBy: status
+    # Column order — matches the status enum in the initial-state spec §3.5
+    columns:
+      - backlog
+      - todo
+      - doing
+      - blocked
+      - review
+    order:
+      - order
+    properties:
+      - priority
+      - due
+      - project
+    # New-card template (supported by the kanban view plugin's settings;
+    # mirror this in the plugin config UI):
+    newNoteTemplate: 00-system/templates/tpl-kanban-card.md
+    newNoteFolder: 20-tasks
+
+  - type: table
+    name: All open (triage)
+    order:
+      - priority
+      - due
+    properties:
+      - file.name
+      - status
+      - priority
+      - due
+      - project
+      - formula.age_days
+
+  - type: table
+    name: Done (awaiting archive)
+    filters:
+      and:
+        - status == "done"
+    order:
+      - modified
+    properties:
+      - file.name
+      - modified
+      - project
