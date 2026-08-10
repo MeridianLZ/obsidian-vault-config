@@ -1,5 +1,20 @@
 # SESSION LOG (newest first)
 
+## 2026-08-10 (cont.2) — audit residuals + backstop hardening
+
+- Cold-auditor re-verified all 8 blockers + 3 compliance HIGHs CLOSED; found 5
+  residuals (R1-R5). Fixed R1-R4 (cef04a0): layered fence (L1 preToolUse hardened,
+  L2 git pre-commit backstop inspecting staged diff, L3 OS-isolation documented),
+  scoped+TTL tokens, smoke→bundle, single-source MCP, classRank fail-closed.
+- Final delta re-audit CONFIRMED R1-R4, found 2 MEDIUM gaps I introduced with L2,
+  fixed (d51dc6c): L2-a audit dir now append-only enforced (was: token could rewrite
+  audit lines = evidence tampering); L2-b .githooks/.git/hooks added to fence
+  protected set (was: agent could rm the backstop then commit). Battery 33→36.
+- Auditor released after final pass. Only unverifiable item remains: does the
+  .github/hooks/ fence fire on the target's Copilot CLI version (#2540) — needs a
+  live seat; DEPLOY.md acceptance check #1 + L3 OS isolation are the answer.
+- Net: 16-commit remediation arc (95ebfde→d51dc6c). READY for P4.
+
 ## 2026-08-10 (cont.) — P4-readiness audit + full remediation
 
 - User asked for unbiased pre-P4 audit + context-window guidance. Decision: no
