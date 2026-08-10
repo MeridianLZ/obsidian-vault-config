@@ -9,6 +9,7 @@
     "build": "tsc && node scripts/bundle.mjs",
     "bundle": "node scripts/bundle.mjs",
     "start": "node bin/vault-mcp.mjs",
+    "test": "node smoke.mjs && node smoke.mjs -c internal && node smoke.mjs -c public",
     "smoke": "node smoke.mjs"
   },
   "engines": { "node": ">=24" },

@@ -86,7 +86,8 @@ try {
 
   // R2: retained rows visible scale with clearance (internal hides confidential+restricted)
   const rr = await call("retention_register", {});
-  const expectRows = clearance === "restricted" ? 4 : clearance === "confidential" ? 3 : 2;
+  // restricted sees all record_class≠none incl. the draft-glba edge case (#13); internal hides confidential+
+  const expectRows = clearance === "restricted" ? 5 : clearance === "confidential" ? 4 : 2;
   check("retention_register-clearance", rr.rows?.length === expectRows, `rows=${rr.rows?.length} expected=${expectRows}`);
 
   const hs = await call("hold_set", {});
@@ -128,6 +129,28 @@ try {
 
   const guide = await call("get_vault_guide", {});
   check("vault_guide", !!guide.constitution && guide.routing_map?.length >= 10);
+
+  // --- compliance-correctness regressions (audit batch C) ---
+  // #12: legal_hold:"true" (string) must register as held
+  if (clearance === "restricted" || clearance === "confidential") {
+    const held = await call("hold_set", {});
+    check("truthy-string-hold", JSON.stringify(held.holds).includes("01J0000000000000000000DFT1"), "legal_hold:'true' string must hold");
+    // #13: draft glba-npi note must appear in the retention register
+    const rr2 = await call("retention_register", {});
+    check("draft-in-retention", rr2.rows?.some((r) => r.id === "01J0000000000000000000DFT1"), "draft record must be inventoried");
+  }
+  // #11: typo'd classification ("Confidental") must fail CLOSED — invisible at internal
+  if (clearance === "internal") {
+    const typo = await call("read_note", { ref: "01J0000000000000000000TYPO" });
+    check("classification-fail-closed", typo.redacted === true, JSON.stringify(typo).slice(0, 80));
+  }
+  if (clearance === "restricted") {
+    const typo = await call("read_note", { ref: "01J0000000000000000000TYPO" });
+    check("failclosed-visible-at-restricted", typo.body !== undefined && !typo.redacted);
+    // #34: redacted stub carries no path
+    const pubHit = (await call("fts_search", { query: "misspelled" })).hits ?? [];
+    check("redact-no-path", pubHit.every((h) => !h.redacted || h.path === ""), JSON.stringify(pubHit.slice(0, 1)));
+  }
 } catch (e) {
   if (e.message !== "__public_done__") check("harness", false, e.message);
 } finally {

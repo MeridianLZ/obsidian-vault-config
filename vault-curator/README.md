@@ -38,8 +38,9 @@ Enterprise: register via internal `marketplace.json`, push with `managed-setting
 ```bash
 # gate-server (no copilot needed):
 node gate-server/index.js --vault ../vault-mcp/test-fixture --dry-run
-# fence battery (11 checks: curated-deny, inbox/daily-allow, rebase/audit-deny,
-# token allow-once-then-deny, injection scan, guide injection):
+# fence battery (29 checks incl. every bypass probe: absolute-path, ./ , ../
+# traversal, python/perl/truncate writes, VS Code payload keys, fail-closed on
+# unknown shape, path-scoped single-use tokens, broadened git denies):
 ./test-plugin.sh
 ```
 

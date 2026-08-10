@@ -19,7 +19,7 @@ node dist/index.js --vault /path/to/vault --clearance internal
 
 ## What's implemented
 
-All 41 tools of spec angles 1–9. Angle 10 (`curator_propose`/`curator_status`/`curator_report`) lives in the **curator-gate** server (`vault-curator/gate-server`), not here — this server is read-only by construction (R1: every tool ships `readOnlyHint: true`).
+All 44 tools of spec angles 1–9. Angle 10 (`curator_propose`/`curator_status`/`curator_report`) lives in the **curator-gate** server (`vault-curator/gate-server`), not here — this server is read-only by construction (R1: every tool ships `readOnlyHint: true`).
 
 - **Conventions R1–R6** enforced: read-only annotations, server-side clearance filtering *before* ranking (over-clearance hits surface as `{redacted: true}` stubs), the common filter block on every search/traversal tool, the uniform result envelope with per-hit `why` fusion provenance, ULID-`id` keying, zero network calls.
 - **Lexical**: SQLite FTS5/BM25, field-weighted (title 4×, aliases 3×, headings 2×, summary 2×, body 1×), porter+unicode61.

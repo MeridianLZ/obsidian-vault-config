@@ -24673,7 +24673,7 @@ function envelope(partial2) {
 function redactHit(n) {
   return {
     id: n.id,
-    path: n.path,
+    path: "",
     title: n.title,
     score: 0,
     summary: "",
@@ -24701,7 +24701,7 @@ var REQUIRED_UNIVERSAL = [
 ];
 var EXCLUDED_FOLDERS = ["00-system", "01-inbox"];
 var VaultIndex = class {
-  // chunk_ref → chunk
+  // #23 diagnostics
   constructor(vaultPath, dbPath) {
     this.vaultPath = vaultPath;
     this.db = new DatabaseSync(dbPath ?? ":memory:");
@@ -24724,6 +24724,8 @@ var VaultIndex = class {
   edges = [];
   unresolved = [];
   chunks = /* @__PURE__ */ new Map();
+  // chunk_ref → chunk
+  titleCollisions = [];
   /** Full (re)scan. Idempotent: wipes + rebuilds. */
   scan() {
     this.notes.clear();
@@ -24732,6 +24734,7 @@ var VaultIndex = class {
     this.edges = [];
     this.unresolved = [];
     this.chunks.clear();
+    this.titleCollisions = [];
     this.db.exec("DELETE FROM fts;");
     for (const rel of this.walk("")) {
       if (!rel.endsWith(".md")) continue;
@@ -24741,11 +24744,23 @@ var VaultIndex = class {
       if (!note) continue;
       this.notes.set(note.id, note);
       this.byPath.set(note.path, note.id);
-      this.byTitle.set(note.title.toLowerCase(), note.id);
-      this.byTitle.set(normKey(note.title), note.id);
+      const claim = (key) => {
+        const prev = this.byTitle.get(key);
+        if (prev === void 0) {
+          this.byTitle.set(key, note.id);
+          return;
+        }
+        const prevNote = this.notes.get(prev);
+        const prevArchived = prevNote?.folder === "90-archive" || prevNote?.status === "archived";
+        const thisArchived = note.folder === "90-archive" || note.status === "archived";
+        if (prevArchived && !thisArchived) this.byTitle.set(key, note.id);
+        this.titleCollisions.push({ key, kept: this.byTitle.get(key), dropped: this.byTitle.get(key) === note.id ? prev : note.id });
+      };
+      claim(note.title.toLowerCase());
+      claim(normKey(note.title));
       for (const a of note.aliases) {
-        this.byTitle.set(String(a).toLowerCase(), note.id);
-        this.byTitle.set(normKey(String(a)), note.id);
+        claim(String(a).toLowerCase());
+        claim(normKey(String(a)));
       }
     }
     const insert = this.db.prepare(
@@ -24803,6 +24818,7 @@ var VaultIndex = class {
     }
     const title = path.basename(rel, ".md");
     const listy = (v) => Array.isArray(v) ? v.map(String) : v == null || v === "" ? [] : [String(v)];
+    const truthy = (v) => v === true || v === 1 || typeof v === "string" && /^(true|yes|1|on)$/i.test(v.trim());
     const missing = REQUIRED_UNIVERSAL.filter((k) => !(k in fm));
     const id = typeof fm.id === "string" && fm.id ? fm.id : "path:" + createHash("sha1").update(rel).digest("hex").slice(0, 16);
     const st = fs.statSync(abs);
@@ -24815,11 +24831,14 @@ var VaultIndex = class {
       summary: String(fm.summary ?? ""),
       aliases: listy(fm.aliases),
       tags: listy(fm.tags).map((t) => t.startsWith("#") ? t : "#" + t),
-      classification: ["public", "internal", "confidential", "restricted"].includes(String(fm.classification)) ? fm.classification : "internal",
+      // classification fails CLOSED: an unrecognized/typo'd value is treated as the
+      // MOST restrictive, never silently downgraded to internal (finding #11).
+      classification: ["public", "internal", "confidential", "restricted"].includes(String(fm.classification)) ? String(fm.classification) : "classification" in fm ? "restricted" : "internal",
       record_class: listy(fm.record_class).filter((r) => r !== "none"),
       retention_until: fm.retention_until ? String(fm.retention_until) : null,
-      legal_hold: fm.legal_hold === true,
-      pii: fm.pii === true,
+      legal_hold: truthy(fm.legal_hold),
+      // "true" string no longer silently false (#12)
+      pii: truthy(fm.pii),
       origin: String(fm.origin ?? ""),
       created: fm.created ? String(fm.created) : null,
       modified: fm.modified ? String(fm.modified) : null,
@@ -24843,13 +24862,14 @@ var VaultIndex = class {
         else this.unresolved.push({ from_id: n.id, from_path: n.path, target: raw, line: 0 });
       }
     }
-    const lines = n.body.split("\n");
+    const lines = n.body.replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, " ")).split("\n");
     let inRelated = false;
     lines.forEach((line, i) => {
       if (/^##\s+Related\s*$/.test(line)) {
         inRelated = true;
         return;
       } else if (/^##\s/.test(line)) inRelated = false;
+      if (/^\s*`{3,}/.test(line)) return;
       const re = /\[\[([^\]]+)\]\]/g;
       let m;
       while (m = re.exec(line)) {
@@ -25395,11 +25415,15 @@ function prop(n, name) {
   if (name in n.frontmatter) return n.frontmatter[name];
   return n[name];
 }
+var unsupportedExprs = /* @__PURE__ */ new Set();
 function evalExpr(expr, n) {
   const inFolder = /^file\.inFolder\("([^"]+)"\)$/.exec(expr.trim());
   if (inFolder) return n.path.startsWith(inFolder[1]);
   const cmp = /^(\S+)\s*(==|!=|<=|>=|<|>)\s*(.+)$/.exec(expr.trim());
-  if (!cmp) return false;
+  if (!cmp) {
+    unsupportedExprs.add(expr.trim());
+    return false;
+  }
   const [, lhs, op, rhsRaw] = cmp;
   const left = prop(n, lhs);
   let right = rhsRaw.trim();
@@ -25431,6 +25455,7 @@ function evalCond(c, n) {
 }
 function queryBase(def, notes, viewName) {
   const view = def.views?.find((v) => v.name === viewName) ?? def.views?.[0] ?? { type: "table", name: "default" };
+  unsupportedExprs.clear();
   const matched = [];
   for (const n of notes) {
     if (!evalCond(def.filters, n)) continue;
@@ -25468,9 +25493,11 @@ function queryBase(def, notes, viewName) {
       (groups[g] ??= []).push(toRow(n));
     }
     for (const g of Object.keys(groups)) sortRows(groups[g]);
-    return { view: view.name, groupBy: view.groupBy, groups };
+    const unsupported2 = unsupportedExprs.size ? [...unsupportedExprs] : void 0;
+    return { view: view.name, groupBy: view.groupBy, groups, unsupported: unsupported2 };
   }
-  return { view: view.name, rows: sortRows(matched.map(toRow)) };
+  const unsupported = unsupportedExprs.size ? [...unsupportedExprs] : void 0;
+  return { view: view.name, rows: sortRows(matched.map(toRow)), unsupported };
 }
 
 // src/index.ts
@@ -25688,7 +25715,11 @@ tool(
   ({ filters, sort, limit, cursor }) => {
     const all = applyFilters(idx.notes.values(), filters).filter(visible);
     const key = sort ?? "modified";
-    all.sort((a, b) => (b[key] ?? "") < (a[key] ?? "") ? -1 : 1);
+    all.sort((a, b) => {
+      const av = a[key] ?? "", bv = b[key] ?? "";
+      if (av !== bv) return av < bv ? 1 : -1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
     const off = cursor ?? 0, lim = Math.min(limit ?? 50, 200);
     return json(envelope({
       strategy: "list",
@@ -25821,7 +25852,12 @@ tool(
   ({ base_path, view }) => {
     const def = loadBase(VAULT, base_path);
     const result = queryBase(def, [...idx.notes.values()].filter(visible), view);
-    return json(envelope({ strategy: "bases-dsl", ...result }));
+    return json(envelope({
+      strategy: "bases-dsl",
+      ...result,
+      status: result.unsupported?.length ? "degraded" : "ok",
+      diagnostics: { warnings: result.unsupported?.length ? [`.base uses expressions this evaluator does not support (returned as false): ${result.unsupported.join("; ")}`] : [] }
+    }));
   }
 );
 var SEMANTIC_DEGRADED = {
@@ -25890,10 +25926,15 @@ tool(
     filters: FilterSchema,
     limit: external_exports.number().optional()
   },
-  async ({ query, mode, filters, limit }) => {
+  async ({ query, mode, rerank, filters, limit }) => {
     let m = mode ?? "auto";
     if (m === "auto") m = /["'`]|[A-Z]{2,}\d|--|::/.test(query) || query.split(/\s+/).length <= 2 ? "sparse" : "hybrid";
     const env = await engine.hybrid(query, m, filters, Math.min(limit ?? 20, 100));
+    if (rerank) {
+      env.diagnostics.warnings.push("rerank requested but no cross-encoder is configured (embedder=none); results are RRF-fused only, not reranked");
+      env.recommendations.push("deploy a local cross-encoder to enable intent rerank of the top candidates");
+      if (env.status === "ok") env.status = "degraded";
+    }
     return json(env);
   }
 );
@@ -26380,7 +26421,7 @@ tool(
   "The living GLBA data inventory / 17a-4 retention worklist: every record_class\u2260none note with class, retention_until, legal_hold, age.",
   { filters: FilterSchema },
   ({ filters }) => {
-    const rows = applyFilters(idx.notes.values(), { ...filters, include_archive: true }).filter(visible).filter((n) => n.record_class.length).map((n) => ({
+    const rows = applyFilters(idx.notes.values(), { ...filters, include_archive: true, include_drafts: true }).filter(visible).filter((n) => n.record_class.length).map((n) => ({
       ...noteMeta(n),
       record_class: n.record_class,
       retention_until: n.retention_until,
@@ -26546,9 +26587,15 @@ function topTerms(notes) {
 }
 function isoWeek(dateIso) {
   const d = new Date(dateIso);
-  const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - jan1.getTime()) / 864e5 + jan1.getUTCDay() + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = (t.getUTCDay() + 6) % 7;
+  t.setUTCDate(t.getUTCDate() - day + 3);
+  const isoYear = t.getUTCFullYear();
+  const firstThu = new Date(Date.UTC(isoYear, 0, 4));
+  const firstDay = (firstThu.getUTCDay() + 6) % 7;
+  firstThu.setUTCDate(firstThu.getUTCDate() - firstDay + 3);
+  const week = 1 + Math.round((t.getTime() - firstThu.getTime()) / (7 * 864e5));
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
 }
 function readTagRegistry(vault) {
   for (const p of ["00-system/schema/tag-registry.md", "templates/tag-registry.md"]) {

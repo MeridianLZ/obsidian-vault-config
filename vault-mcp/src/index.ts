@@ -190,7 +190,12 @@ tool("list_notes", "Browse without search: paged listing with summary per hit.",
   ({ filters, sort, limit, cursor }) => {
     const all = applyFilters(idx.notes.values(), filters).filter(visible);
     const key = sort ?? "modified";
-    all.sort((a, b) => ((b as any)[key] ?? "") < ((a as any)[key] ?? "") ? -1 : 1);
+    // stable order: compare on key, tie-break by id so equal keys don't shuffle (#36)
+    all.sort((a, b) => {
+      const av = (a as any)[key] ?? "", bv = (b as any)[key] ?? "";
+      if (av !== bv) return av < bv ? 1 : -1;   // desc for dates; title/path desc too, documented
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
     const off = cursor ?? 0, lim = Math.min(limit ?? 50, 200);
     return json(envelope({
       strategy: "list", hits: all.slice(off, off + lim).map((n) => ({ ...noteMeta(n), score: 0, why: "listing" })) as unknown as Hit[],
@@ -293,7 +298,10 @@ tool("query_base", "Evaluate a .base file's filter/formula DSL server-side — r
   ({ base_path, view }) => {
     const def = loadBase(VAULT, base_path);
     const result = queryBase(def, [...idx.notes.values()].filter(visible), view);
-    return json(envelope({ strategy: "bases-dsl", ...result }));
+    return json(envelope({ strategy: "bases-dsl", ...result,
+      status: result.unsupported?.length ? "degraded" : "ok",
+      diagnostics: { warnings: result.unsupported?.length
+        ? [`.base uses expressions this evaluator does not support (returned as false): ${result.unsupported.join("; ")}`] : [] } }));
   });
 
 // ================= Angle 3: Semantic (degraded without local embedder) =================
@@ -339,10 +347,17 @@ tool("similar_to_text", "'Does the vault already know this?' — the dedup pre-c
 tool("search", "THE primary retrieval front door: sparse (FTS5) + dense fused via RRF. mode auto routes by query shape and reports its choice in strategy.",
   { query: z.string(), mode: z.enum(["hybrid","sparse","dense","auto"]).optional(),
     rerank: z.boolean().optional(), filters: FilterSchema, limit: z.number().optional() },
-  async ({ query, mode, filters, limit }) => {
+  async ({ query, mode, rerank, filters, limit }) => {
     let m = mode ?? "auto";
     if (m === "auto") m = /["'`]|[A-Z]{2,}\d|--|::/.test(query) || query.split(/\s+/).length <= 2 ? "sparse" : "hybrid";
     const env = await engine.hybrid(query, m, filters, Math.min(limit ?? 20, 100));
+    // rerank requested but no cross-encoder ships (needs a local model, like the dense
+    // channel) — say so rather than silently ignore it (finding #21, spec §13).
+    if (rerank) {
+      env.diagnostics.warnings.push("rerank requested but no cross-encoder is configured (embedder=none); results are RRF-fused only, not reranked");
+      env.recommendations.push("deploy a local cross-encoder to enable intent rerank of the top candidates");
+      if (env.status === "ok") env.status = "degraded";
+    }
     return json(env);
   });
 
@@ -717,7 +732,9 @@ tool("provenance", "One call from 'the vault says X' to the frozen evidence: not
 tool("retention_register", "The living GLBA data inventory / 17a-4 retention worklist: every record_class≠none note with class, retention_until, legal_hold, age.",
   { filters: FilterSchema },
   ({ filters }) => {
-    const rows = applyFilters(idx.notes.values(), { ...filters, include_archive: true }).filter(visible)
+    // compliance inventory MUST include drafts and archive — a draft glba-npi note
+    // is still a regulated record (finding #13).
+    const rows = applyFilters(idx.notes.values(), { ...filters, include_archive: true, include_drafts: true }).filter(visible)
       .filter((n) => n.record_class.length)
       .map((n) => ({ ...noteMeta(n), record_class: n.record_class, retention_until: n.retention_until,
         legal_hold: n.legal_hold, pii: n.pii,
@@ -856,11 +873,18 @@ function topTerms(notes: NoteRecord[]): string[] {
   return [...df.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t);
 }
 
+// Proper ISO-8601 week (Thursday-anchored), correct across year boundaries (#37).
 function isoWeek(dateIso: string): string {
   const d = new Date(dateIso);
-  const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getUTCDay() + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = (t.getUTCDay() + 6) % 7;                 // Mon=0..Sun=6
+  t.setUTCDate(t.getUTCDate() - day + 3);              // to the Thursday of this week
+  const isoYear = t.getUTCFullYear();
+  const firstThu = new Date(Date.UTC(isoYear, 0, 4));  // Jan 4 is always in ISO week 1
+  const firstDay = (firstThu.getUTCDay() + 6) % 7;
+  firstThu.setUTCDate(firstThu.getUTCDate() - firstDay + 3);
+  const week = 1 + Math.round((t.getTime() - firstThu.getTime()) / (7 * 86400000));
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
 }
 
 function readTagRegistry(vault: string): Set<string> | null {

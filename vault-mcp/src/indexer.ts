@@ -32,6 +32,7 @@ export class VaultIndex {
   edges: Edge[] = [];
   unresolved: UnresolvedLink[] = [];
   chunks = new Map<string, Chunk>();              // chunk_ref → chunk
+  titleCollisions: { key: string; kept: string; dropped: string }[] = [];  // #23 diagnostics
 
   constructor(public vaultPath: string, dbPath?: string) {
     this.db = new DatabaseSync(dbPath ?? ":memory:");
@@ -48,7 +49,7 @@ export class VaultIndex {
   /** Full (re)scan. Idempotent: wipes + rebuilds. */
   scan(): void {
     this.notes.clear(); this.byPath.clear(); this.byTitle.clear();
-    this.edges = []; this.unresolved = []; this.chunks.clear();
+    this.edges = []; this.unresolved = []; this.chunks.clear(); this.titleCollisions = [];
     this.db.exec("DELETE FROM fts;");
 
     for (const rel of this.walk("")) {
@@ -59,11 +60,22 @@ export class VaultIndex {
       if (!note) continue;
       this.notes.set(note.id, note);
       this.byPath.set(note.path, note.id);
-      this.byTitle.set(note.title.toLowerCase(), note.id);
-      this.byTitle.set(normKey(note.title), note.id); // "Payments Operations" ↔ "payments-operations"
+      // Title/alias map: on collision, a live (non-archive) note wins over an archived
+      // one; otherwise first-write wins and the collision is recorded (finding #23).
+      const claim = (key: string) => {
+        const prev = this.byTitle.get(key);
+        if (prev === undefined) { this.byTitle.set(key, note.id); return; }
+        const prevNote = this.notes.get(prev);
+        const prevArchived = prevNote?.folder === "90-archive" || prevNote?.status === "archived";
+        const thisArchived = note.folder === "90-archive" || note.status === "archived";
+        if (prevArchived && !thisArchived) this.byTitle.set(key, note.id);   // live supersedes archived
+        this.titleCollisions.push({ key, kept: this.byTitle.get(key)!, dropped: this.byTitle.get(key) === note.id ? prev : note.id });
+      };
+      claim(note.title.toLowerCase());
+      claim(normKey(note.title)); // "Payments Operations" ↔ "payments-operations"
       for (const a of note.aliases) {
-        this.byTitle.set(String(a).toLowerCase(), note.id);
-        this.byTitle.set(normKey(String(a)), note.id);
+        claim(String(a).toLowerCase());
+        claim(normKey(String(a)));
       }
     }
     // second pass: links need the full title map
@@ -116,6 +128,10 @@ export class VaultIndex {
     const title = path.basename(rel, ".md");
     const listy = (v: unknown): string[] =>
       Array.isArray(v) ? v.map(String) : v == null || v === "" ? [] : [String(v)];
+    // YAML truthiness that survives string-quoting: true|"true"|"yes"|1 → true.
+    // Compliance flags fail SAFE — an unparseable value is treated as protective.
+    const truthy = (v: unknown): boolean =>
+      v === true || v === 1 || (typeof v === "string" && /^(true|yes|1|on)$/i.test(v.trim()));
     const missing = REQUIRED_UNIVERSAL.filter((k) => !(k in fm));
     const id = typeof fm.id === "string" && fm.id
       ? fm.id
@@ -128,12 +144,15 @@ export class VaultIndex {
       summary: String(fm.summary ?? ""),
       aliases: listy(fm.aliases),
       tags: listy(fm.tags).map((t) => (t.startsWith("#") ? t : "#" + t)),
+      // classification fails CLOSED: an unrecognized/typo'd value is treated as the
+      // MOST restrictive, never silently downgraded to internal (finding #11).
       classification: (["public","internal","confidential","restricted"].includes(String(fm.classification))
-        ? fm.classification : "internal") as NoteRecord["classification"],
+        ? String(fm.classification)
+        : "classification" in fm ? "restricted" : "internal") as NoteRecord["classification"],
       record_class: listy(fm.record_class).filter((r) => r !== "none"),
       retention_until: fm.retention_until ? String(fm.retention_until) : null,
-      legal_hold: fm.legal_hold === true,
-      pii: fm.pii === true,
+      legal_hold: truthy(fm.legal_hold),   // "true" string no longer silently false (#12)
+      pii: truthy(fm.pii),
       origin: String(fm.origin ?? ""),
       created: fm.created ? String(fm.created) : null,
       modified: fm.modified ? String(fm.modified) : null,
@@ -160,12 +179,15 @@ export class VaultIndex {
         else this.unresolved.push({ from_id: n.id, from_path: n.path, target: raw, line: 0 });
       }
     }
-    // body wikilinks + ## Related rationale clauses
-    const lines = n.body.split("\n");
+    // body wikilinks + ## Related rationale clauses.
+    // Strip fenced code blocks first so [[…]] in code samples aren't parsed as links
+    // (finding #22 — was causing false broken_links incidents). Consistent with tag_index.
+    const lines = n.body.replace(/```[\s\S]*?```/g, (m) => m.replace(/[^\n]/g, " ")).split("\n");
     let inRelated = false;
     lines.forEach((line, i) => {
       if (/^##\s+Related\s*$/.test(line)) { inRelated = true; return; }
       else if (/^##\s/.test(line)) inRelated = false;
+      if (/^\s*`{3,}/.test(line)) return;         // defensive: skip any residual fence line
       const re = /\[\[([^\]]+)\]\]/g;
       let m: RegExpExecArray | null;
       while ((m = re.exec(line))) {

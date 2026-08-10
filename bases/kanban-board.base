@@ -8,10 +8,13 @@
 # Column grouping, card sort, and shown properties are all driven by the
 # task-note frontmatter defined in tpl-kanban-card.md.
 
+# Base filter scopes to task notes only. It must NOT exclude done here — view
+# filters AND with the base filter, so a base-level `status != done` makes the
+# "Done (awaiting archive)" view unsatisfiable (audit finding #17). The Board
+# view carries its own status exclusion instead.
 filters:
   and:
     - type == "task"
-    - status != "done"
     - file.inFolder("20-tasks")
 
 formulas:
@@ -28,6 +31,9 @@ properties:
 views:
   - type: kanban
     name: Board
+    filters:
+      and:
+        - status != "done"
     groupBy: status
     # Column order — matches the status enum in the initial-state spec §3.5
     columns:

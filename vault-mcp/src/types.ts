@@ -103,10 +103,11 @@ export function envelope(partial: Partial<Envelope> & { strategy: string }): Env
   };
 }
 
-// Redacted stub per R2: existence discoverable, content not.
+// Redacted stub per R2: existence discoverable, content not. Path withheld too —
+// a filename like "customer-jane-doe-pii.md" is signal above clearance (#34).
 export function redactHit(n: NoteRecord): Hit {
   return {
-    id: n.id, path: n.path, title: n.title, score: 0, summary: "",
+    id: n.id, path: "", title: n.title, score: 0, summary: "",
     classification: n.classification, why: "redacted:classification>clearance", redacted: true,
   };
 }

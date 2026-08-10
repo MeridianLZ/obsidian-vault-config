@@ -29,12 +29,17 @@ function prop(n: NoteRecord, name: string): unknown {
   return (n as any)[name];
 }
 
+/** Unsupported-expression sink: populated during a queryBase run so callers can
+ *  surface "this .base uses DSL we don't evaluate" instead of silently returning
+ *  empty rows that read as "nothing to review" (finding #24). */
+export const unsupportedExprs = new Set<string>();
+
 /** Evaluate one expression string against a note. */
 export function evalExpr(expr: string, n: NoteRecord): boolean {
   const inFolder = /^file\.inFolder\("([^"]+)"\)$/.exec(expr.trim());
   if (inFolder) return n.path.startsWith(inFolder[1]);
   const cmp = /^(\S+)\s*(==|!=|<=|>=|<|>)\s*(.+)$/.exec(expr.trim());
-  if (!cmp) return false;
+  if (!cmp) { unsupportedExprs.add(expr.trim()); return false; }
   const [, lhs, op, rhsRaw] = cmp;
   const left = prop(n, lhs);
   let right: unknown = rhsRaw.trim();
@@ -64,9 +69,10 @@ export interface BaseRow { id: string; path: string; title: string; [k: string]:
 
 /** Compute view rows exactly as Bases would (for the supported subset). */
 export function queryBase(def: BaseDef, notes: Iterable<NoteRecord>, viewName?: string):
-  { view: string; groupBy?: string; groups?: Record<string, BaseRow[]>; rows?: BaseRow[] } {
+  { view: string; groupBy?: string; groups?: Record<string, BaseRow[]>; rows?: BaseRow[]; unsupported?: string[] } {
   const view = def.views?.find((v) => v.name === viewName) ?? def.views?.[0]
     ?? { type: "table", name: "default" };
+  unsupportedExprs.clear();
   const matched: NoteRecord[] = [];
   for (const n of notes) {
     if (!evalCond(def.filters, n)) continue;
@@ -105,7 +111,9 @@ export function queryBase(def: BaseDef, notes: Iterable<NoteRecord>, viewName?: 
       (groups[g] ??= []).push(toRow(n));
     }
     for (const g of Object.keys(groups)) sortRows(groups[g]);
-    return { view: view.name, groupBy: view.groupBy, groups };
+    const unsupported = unsupportedExprs.size ? [...unsupportedExprs] : undefined;
+    return { view: view.name, groupBy: view.groupBy, groups, unsupported };
   }
-  return { view: view.name, rows: sortRows(matched.map(toRow)) };
+  const unsupported = unsupportedExprs.size ? [...unsupportedExprs] : undefined;
+  return { view: view.name, rows: sortRows(matched.map(toRow)), unsupported };
 }
