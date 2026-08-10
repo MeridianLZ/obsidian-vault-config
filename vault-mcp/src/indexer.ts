@@ -1,7 +1,8 @@
 // Vault scan → SQLite (FTS5) + in-memory note map + typed edge list.
 // Incremental: mtime+size keyed. Constitution §6 is the contract.
+// Store = node:sqlite (built-in, FTS5 present) — no native module, air-gap-clean (§1.4).
 
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import matter from "gray-matter";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -24,7 +25,7 @@ export interface UnresolvedLink {
 }
 
 export class VaultIndex {
-  db: Database.Database;
+  db: DatabaseSync;
   notes = new Map<string, NoteRecord>();          // id → note
   byPath = new Map<string, string>();             // path → id
   byTitle = new Map<string, string>();            // lowercase title/alias → id
@@ -33,8 +34,8 @@ export class VaultIndex {
   chunks = new Map<string, Chunk>();              // chunk_ref → chunk
 
   constructor(public vaultPath: string, dbPath?: string) {
-    this.db = new Database(dbPath ?? ":memory:");
-    this.db.pragma("journal_mode = WAL");
+    this.db = new DatabaseSync(dbPath ?? ":memory:");
+    if (dbPath && dbPath !== ":memory:") this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
         note_id UNINDEXED, chunk_ref UNINDEXED, kind UNINDEXED,
@@ -68,7 +69,8 @@ export class VaultIndex {
     // second pass: links need the full title map
     const insert = this.db.prepare(
       "INSERT INTO fts (note_id, chunk_ref, kind, title, aliases, headings, summary, body) VALUES (?,?,?,?,?,?,?,?)");
-    const tx = this.db.transaction(() => {
+    this.db.exec("BEGIN");
+    try {
       for (const note of this.notes.values()) {
         this.extractEdges(note);
         const indexable = this.isIndexable(note);
@@ -82,8 +84,11 @@ export class VaultIndex {
           }
         }
       }
-    });
-    tx();
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
   }
 
   isIndexable(n: NoteRecord): boolean {

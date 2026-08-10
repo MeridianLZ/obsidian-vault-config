@@ -1,0 +1,6 @@
+{
+  "folder": "30-daily",
+  "format": "YYYY-MM-DD",
+  "template": "00-system/templates/tpl-daily-note",
+  "autorun": true
+}

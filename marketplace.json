@@ -1,0 +1,13 @@
+{
+  "name": "fi-knowledge-plugins",
+  "owner": { "name": "Knowledge Systems", "email": "ks@example-fi.internal" },
+  "metadata": { "description": "Governed knowledge-vault tooling", "version": "1.0.0" },
+  "plugins": [
+    {
+      "name": "vault-curator",
+      "description": "Curator-gated governance for the compliance vault",
+      "version": "1.0.0",
+      "source": "./vault-curator"
+    }
+  ]
+}

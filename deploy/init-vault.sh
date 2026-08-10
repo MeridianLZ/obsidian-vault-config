@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# init-vault.sh — executable constitution §8 initial-state checklist.
+# Materializes a schema-complete, empty Obsidian vault from this kit at a target
+# path: folder tree, extracted templates, seeded schema files, bases, agent
+# registrations, git epoch commit. Idempotent-ish: refuses a non-empty target
+# unless --force.
+#
+# Usage:
+#   deploy/init-vault.sh -t|--target <vault-dir> [-f|--force] [--no-git]
+set -euo pipefail
+Usage() {
+  cat <<EOF
+Usage: $0 -t|--target <vault-dir> [options]
+  -t, --target <dir>   destination vault path (required; created if absent)
+  -f, --force          proceed even if target is non-empty
+      --no-git         skip git init + epoch commit + tag
+  -h, --help           this text
+EOF
+  exit 2
+}
+TARGET="" ; FORCE=0 ; DO_GIT=1
+while [ $# -gt 0 ]; do case "$1" in
+  -t|--target) TARGET="${2:?}"; shift;;
+  -f|--force) FORCE=1;;
+  --no-git) DO_GIT=0;;
+  -h|--help) Usage;;
+  *) echo "unknown arg: $1"; Usage;;
+esac; shift; done
+[ -n "$TARGET" ] || Usage
+KIT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# --- guard: non-empty target ---
+if [ -e "$TARGET" ] && [ -n "$(ls -A "$TARGET" 2>/dev/null || true)" ] && [ "$FORCE" != 1 ]; then
+  echo "refusing: $TARGET is non-empty (use --force)"; exit 1
+fi
+mkdir -p "$TARGET"
+TARGET="$(cd "$TARGET" && pwd)"
+echo "→ initializing vault at $TARGET"
+
+# --- §8.1 folder tree ---
+for d in \
+  00-system/templates 00-system/bases 00-system/schema 00-system/audit \
+  01-inbox/_proposals 10-notes 20-tasks 30-daily \
+  40-sources/_assets 50-entities 90-archive; do
+  mkdir -p "$TARGET/$d"
+done
+# keep empty dirs in git
+find "$TARGET" -type d -empty -exec sh -c 'touch "$1/.gitkeep"' _ {} \;
+
+# --- §8.2 schema files: constitution + seeded registry + changelog + retention rules ---
+cp "$KIT/00-vault-initial-state.md" "$TARGET/00-system/schema/00-vault-initial-state.md"
+for f in tag-registry.md schema-changelog.md retention-rules.md; do
+  [ -f "$KIT/schema/$f" ] && cp "$KIT/schema/$f" "$TARGET/00-system/schema/$f"
+done
+
+# --- §8.3 templates: extract the fenced block from each doc-wrapped template ---
+extract() { awk '/^```markdown$/{f=1;next} /^```$/{if(f){exit}} f' "$1"; }
+for tpl in "$KIT"/templates/tpl-*.md; do
+  name="$(basename "$tpl")"
+  extract "$tpl" > "$TARGET/00-system/templates/$name"
+  [ -s "$TARGET/00-system/templates/$name" ] || { echo "FAIL: empty extraction $name"; exit 1; }
+done
+
+# --- §8.3 bases ---
+cp "$KIT"/bases/*.base "$TARGET/00-system/bases/" 2>/dev/null || true
+
+# --- §8.7 agent + house-rule registrations at vault root ---
+mkdir -p "$TARGET/.github/agents" "$TARGET/.github/instructions" "$TARGET/.github/hooks/scripts" "$TARGET/.github/copilot"
+cp "$KIT/.github/copilot-instructions.md" "$TARGET/.github/"
+cp "$KIT/.github/instructions/"*.md "$TARGET/.github/instructions/" 2>/dev/null || true
+cp "$KIT/.github/agents/"*.agent.md "$TARGET/.github/agents/" 2>/dev/null || true
+# repo-level hook mirror (fires even if plugin hooks don't — copilot-cli#2540)
+cp "$KIT/.github/hooks/vault-fence.json" "$TARGET/.github/hooks/"
+cp "$KIT"/vault-curator/hooks/scripts/*.sh "$TARGET/.github/hooks/scripts/"
+chmod +x "$TARGET/.github/hooks/scripts/"*.sh
+cp "$KIT/.github/copilot/settings.json" "$TARGET/.github/copilot/settings.json"
+
+# --- .obsidian core-plugin config seed (manual §7) ---
+cp -R "$KIT/deploy/obsidian-config/." "$TARGET/.obsidian/" 2>/dev/null || true
+
+# --- first empty audit month + a .gitignore for the live vault ---
+printf '# Curator audit log — %s (append-only, legal_hold)\n' "$(date +%Y-%m)" > "$TARGET/00-system/audit/$(date +%Y-%m).md"
+cat > "$TARGET/.gitignore" <<'EOF'
+.DS_Store
+.obsidian/workspace*.json
+.obsidian/cache
+*.tmp
+EOF
+
+# --- §8.6 git epoch ---
+if [ "$DO_GIT" = 1 ]; then
+  if [ ! -d "$TARGET/.git" ]; then git -C "$TARGET" init -q; fi
+  git -C "$TARGET" add -A
+  git -C "$TARGET" commit -q -m "vault: schema-complete initial state
+
+The audit-trail epoch (SEC 17a-4). Empty corpus, full schema: folder tree,
+templates, tag registry, bases, agent registrations." || echo "(nothing to commit)"
+  git -C "$TARGET" tag -f v1.0.0-initial-state >/dev/null
+  echo "→ git epoch committed + tagged v1.0.0-initial-state"
+fi
+
+echo "✓ vault initialized. Next: run deploy/install-plugin.sh, then open in Obsidian and enable community plugins (manual §7)."

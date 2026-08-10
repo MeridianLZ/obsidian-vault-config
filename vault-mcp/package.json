@@ -3,22 +3,23 @@
   "version": "2.0.0",
   "description": "Read-surface MCP server for the compliance knowledge vault (mcp-read-surface-spec.md v2.0.0)",
   "type": "module",
-  "bin": { "vault-mcp": "dist/index.js" },
+  "bin": { "vault-mcp": "bin/vault-mcp.mjs" },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "node --test dist/test/"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc && node scripts/bundle.mjs",
+    "bundle": "node scripts/bundle.mjs",
+    "start": "node bin/vault-mcp.mjs",
+    "smoke": "node smoke.mjs"
   },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=24" },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "better-sqlite3": "^12.4.1",
-    "gray-matter": "^4.0.3",
-    "zod": "^3.25.0"
+    "gray-matter": "^4.0.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
-    "typescript": "^5.9.0"
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "zod": "^3.25.0",
+    "@modelcontextprotocol/sdk": "^1.30.0"
   }
 }
