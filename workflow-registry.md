@@ -48,8 +48,14 @@
 3. **Idempotency is stated per workflow** and every H/C workflow re-runs safely: re-run drains no-op, re-checked tokens stay consumed, rebuilt dockets are pure functions of frontmatter.
 4. **Humans hold three levers no agent can pull:** schema ratification (W20), disposal authorization (W18), git-history crypto-shred (W19).
 
-## Gaps (deployment obligations, not code)
+## Gaps — status after the P4-readiness audit (2026-08-10)
 
-- **C-class cadences need a scheduler.** Hooks are event-driven; daily/weekly/monthly runs require cron/CI invoking `copilot --agent <steward> -p "<run>"` headlessly (with `--plugin-dir` + `COPILOT_PLUGIN_DIR_ONLY=true` per spec §8). Until wired, cadence workflows are documented but human-triggered.
-- **W22 post-accept re-index**: the Curator's accept commit should trigger vault-mcp reindex (a `post-commit` git hook calling the server's rescan, or supervisor restart). Currently: rescan on server start.
-- **Enterprise fence-with-the-seat** (`managed-settings.json`, spec §7): org-level push makes W01 arrive with the seat; local installs rely on repo `.github/copilot/settings.json` `enabledPlugins`.
+- **C-class cadences** — CLOSED (tooling): `deploy/schedule/curator-cadences.cron.template` + `install-cron.sh` install the daily/weekly/monthly headless steward runs. Operator must run `install-cron.sh` at deploy (DEPLOY.md Step 4). Residual: requires a running scheduler on the target.
+- **W22 post-accept re-index** — CLOSED: `init-vault.sh` installs a `.githooks/post-commit` that writes a `00-system/.reindex-request` sentinel the server watches. On-demand server starts scan on boot regardless.
+- **Fence-firing on the target CLI** — MITIGATED: the fence is mirrored at `.github/hooks/` (repo-level load path) so it holds even if plugin `preToolUse` hooks don't fire (copilot-cli#2540). Residual: if the repo-level hook ALSO doesn't fire on a given CLI version, escalate to a policy-level source (`/etc/github-copilot/policy.d/`) — DEPLOY.md acceptance check #1 verifies this before trusting the vault.
+- **Enterprise fence-with-the-seat** (`managed-settings.json`, spec §7): org-level push makes W01 arrive with the seat; local installs rely on repo `.github/copilot/settings.json` + the repo-level hooks.
+- **Dense/semantic retrieval** — DEGRADED BY POLICY: no local embedder on the target (model-weight ban). Full spec surface present; `search`/`similar_*` report `status: degraded`. Enable with `--embedder onnx:<path>` on a disk-capable host.
+
+## Evolution log
+
+- **2026-08-10** — P4-readiness audit (fresh-context reviewer + inline sweep) found 38 findings incl. 8 blockers. Fixed across 4 batches (commits 95ebfde, 8369bed, a430996, + this): fence bypasses closed (canonicalized paths, deny-by-default verbs, scoped single-use tokens, dual-source hooks), air-gap deployability (node:sqlite + committed esbuild bundle + installer + init-vault + marketplace), compliance correctness (classification fail-closed, truthy-string flags, drafts in registers, path-withholding redaction), and ontology hardened (id format contract, record_class list+none-exclusive, hold_ref, entity_type/verified properties, schema_drift enum+tag-depth+status coverage). Trigger: user requested unbiased pre-P4 audit.

@@ -212,21 +212,24 @@ Everything Parts I–VI made you do — atomic notes, self-contained summaries, 
 
 ## 8.2 MCP server → GitHub Copilot CLI
 
-The vault MCP server (your deployment's build) exposes the hybrid index as tools — typically `search` (query + optional `type:`/`tag:`/`classification:` filters), `read_note` (by `id` or path), `neighbors` (graph expansion from a note), `similar` (dense-only). Register it with Copilot CLI via `/mcp add` interactively, or drop the server into the CLI's MCP config so every session mounts it:
+The vault MCP server (`vault-mcp`, this kit's build) exposes the hybrid index as **44 read tools** across nine retrieval angles — the full catalog is `mcp-read-surface-spec.md`. The front-door names you'll use most: `search` (hybrid, filters per R3), `read_note`/`read_section` (by `ref` = id | path | title), `neighborhood` (graph expansion from a note), `similar_notes` (nearest by vectors — degraded to lexical without a local embedder), `answer_context` (retrieval-for-generation). Don't hand-write the MCP config — `deploy/install-plugin.sh` generates it with absolute paths (Copilot CLI does **not** expand `${VAR}`), producing:
 
 ```jsonc
-// mcp-config (per your CLI version's location — `copilot help mcp` to confirm)
+// .mcp.json in the vault root — written by deploy/install-plugin.sh (absolute paths)
 {
   "mcpServers": {
-    "vault": {
+    "vault-read": {
       "type": "local",
-      "command": "/opt/vault-mcp/vault-mcp",       // stdio binary, air-gap safe
-      "args": ["--vault", "/data/vault", "--readonly"],
-      "tools": ["search", "read_note", "neighbors", "similar"]
+      "command": "/usr/local/bin/node",                 // resolved node
+      "args": ["/abs/path/vault-mcp/bin/vault-mcp.mjs",  // committed single-file bundle
+               "--vault", "/abs/path/vault", "--clearance", "internal"],
+      "tools": ["*"]
     }
   }
 }
 ```
+
+Tool names in older drafts (`neighbors`, `similar`, `read_note` keyed on `id`) are superseded — the runtime uses `neighborhood`, `similar_notes`, and a `ref` param that accepts id/path/title.
 
 Run it stdio/local — no ports, no network, consistent with the air gap. Grant the *Curator* agent a non-readonly variant only if your deployment routes mutations through MCP rather than direct file edits; otherwise readonly everywhere and let file-level gating stand. The `classification` filter must be enforced server-side against the session's clearance — never trust the model to self-censor.
 

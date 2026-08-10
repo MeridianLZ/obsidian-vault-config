@@ -788,21 +788,59 @@ tool("schema_drift", "Machine-checkable health of the contract: constitution vio
     const curated = ["10-notes","20-tasks","40-sources","50-entities"];
     const registry = readTagRegistry(VAULT);
     const violations: any[] = [];
+    const ENUMS: Record<string, string[]> = {
+      type: ["note","task","daily","source","entity","system","audit"],
+      classification: ["public","internal","confidential","restricted"],
+      origin: ["human","agent","hybrid"],
+      record_class: ["none","sec-17a4","glba-npi","gdpr-personal","gdpr-special"],
+      entity_type: ["person","org","system","regulation","project"],
+    };
+    const STATUS: Record<string, string[]> = {
+      note: ["draft","active","stale","archived"], source: ["quarantined","accepted","superseded"],
+      daily: ["open","closed"], entity: ["active","archived"],
+      task: ["backlog","todo","doing","blocked","review","done"],
+    };
     for (const n of idx.notes.values()) {
       if (!curated.includes(n.folder)) continue;
       if (n.missing.length) violations.push({ id: n.id, path: n.path, kind: "missing-properties", detail: n.missing });
       if (!n.summary && n.status !== "draft") violations.push({ id: n.id, path: n.path, kind: "empty-summary" });
+      // enum membership (constitution §3)
+      const fm = n.frontmatter;
+      for (const [k, allowed] of Object.entries(ENUMS)) {
+        if (k === "record_class") { const bad = n.record_class.filter((v) => !allowed.includes(v));
+          if (bad.length) violations.push({ id: n.id, path: n.path, kind: "invalid-enum", detail: { field: k, bad } }); continue; }
+        if (k === "entity_type" && n.type !== "entity") continue;
+        if (k in fm && !allowed.includes(String(fm[k])))
+          violations.push({ id: n.id, path: n.path, kind: "invalid-enum", detail: { field: k, value: fm[k] } });
+      }
+      if (n.type === "entity" && !("entity_type" in fm))
+        violations.push({ id: n.id, path: n.path, kind: "missing-entity_type" });
+      // status enum per type
+      if (STATUS[n.type] && !STATUS[n.type].includes(n.status))
+        violations.push({ id: n.id, path: n.path, kind: "invalid-status", detail: { type: n.type, status: n.status } });
+      // tag discipline (§4): registered, depth ≤3, ≤5 per note
+      if (n.tags.length > 5) violations.push({ id: n.id, path: n.path, kind: "too-many-tags", detail: n.tags.length });
+      for (const t of n.tags) if (t.replace(/^#/, "").split("/").length > 3)
+        violations.push({ id: n.id, path: n.path, kind: "tag-depth>3", detail: t });
       if (registry) {
         const bad = n.tags.filter((t) => !registry.has(t) && ![...registry].some((r) => t.startsWith(r + "/")));
         if (bad.length) violations.push({ id: n.id, path: n.path, kind: "unregistered-tags", detail: bad });
       }
-      if (n.record_class.length && !n.retention_until)
+      if (n.record_class.length && !n.retention_until && !n.legal_hold)
         violations.push({ id: n.id, path: n.path, kind: "retention_until-missing", detail: n.record_class });
+      if (n.legal_hold && !("hold_ref" in fm))
+        violations.push({ id: n.id, path: n.path, kind: "hold_ref-missing" });
+      // provenance: curated note/source claiming verified without a source edge
+      if ((n.type === "note" || n.type === "source") && fm.verified === true &&
+          !idx.edges.some((e) => e.from === n.id && e.kind === "source"))
+        violations.push({ id: n.id, path: n.path, kind: "verified-without-source" });
     }
     for (const u of idx.unresolved.filter((u) => curated.some((c) => u.from_path.startsWith(c))))
       violations.push({ id: u.from_id, path: u.from_path, kind: "unresolved-link", detail: u.target, line: u.line });
     for (const cyc of graphOf().upCycles())
       violations.push({ kind: "up-cycle", detail: cyc.map((id) => idx.notes.get(id)?.title ?? id) });
+    for (const c of idx.titleCollisions)
+      violations.push({ kind: "title-collision", detail: c });
     return json(envelope({ status: violations.length ? "degraded" : "ok", strategy: "schema-drift",
       violations, diagnostics: { warnings: registry ? [] : ["tag-registry.md absent — tag checks skipped"] } }));
   });

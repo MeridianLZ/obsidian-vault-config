@@ -59,24 +59,25 @@ Properties are the typed metadata layer. **Tags never carry data that a property
 | Property | Type | Required | Purpose / consumer |
 |---|---|---|---|
 | `type` | Text (enum) | ✔ | Note class. One of: `note`, `task`, `daily`, `source`, `entity`, `system`, `audit`. Drives Bases filters, templates, retrieval routing. |
-| `id` | Text | ✔ | Immutable ULID assigned at creation. Survives renames; the retrieval index and audit log key on it, not the filename. |
+| `id` | Text | ✔ | Immutable, unique, lexicographically-sortable identifier assigned at creation. Survives renames; the retrieval index and audit log key on it, not the filename. **Format contract:** core-Templates notes mint `<YYYYMMDDHHmmss>-<title-slug>`; Templater notes mint `<epoch-base36><random>` (ULID-lite). Both are sortable and collision-resistant. The Curator MAY normalize an id to canonical form at promotion but MUST preserve it unchanged thereafter — an id, once accepted, is permanent. |
 | `summary` | Text | ✔ | 1–3 sentence **self-contained** abstract. Primary dense-embedding anchor; also shown in Bases and MCP result snippets. Must make sense with zero surrounding context. |
 | `aliases` | List | ✔ (may be empty) | Synonyms, acronyms, ticker-style short names, misspellings you actually use. Primary sparse-retrieval recall lever. |
 | `tags` | List | ✔ (may be empty) | Faceted navigation only — see §4. |
 | `created` | Date & time | ✔ | Set once at creation. ISO 8601. |
 | `modified` | Date & time | ✔ | Updated on every accepted mutation (Curator responsibility). |
 | `status` | Text (enum) | ✔ | Lifecycle per type — see §3.5. |
-| `origin` | Text (enum) | ✔ | `human`, `agent`, or `hybrid`. Authorship provenance; required for audit-trail reconstruction and for weighting agent-generated content lower at retrieval time if desired. |
+| `origin` | Text (enum) | ✔ | Authorship provenance for audit-trail reconstruction. Exactly: **`human`** = a person wrote the substantive content; **`agent`** = an agent authored it end-to-end; **`hybrid`** = a person wrote the substance and an agent materially assisted (drafted, restructured, or summarized) OR vice versa — any note where both a human and an agent shaped the content. When in doubt between `agent` and `hybrid`, use `hybrid`. The Curator never silently changes `origin`. |
 
 ### 3.2 Compliance properties (every note)
 
 | Property | Type | Required | Purpose |
 |---|---|---|---|
 | `classification` | Text (enum) | ✔ | `public` · `internal` · `confidential` · `restricted`. GLBA Safeguards access-control driver. The MCP server MUST filter results by the caller's clearance against this field. |
-| `record_class` | Text (enum) | ✔ | Regulatory bucket: `none`, `sec-17a4`, `glba-npi`, `gdpr-personal`, `gdpr-special`. Multiple ⇒ list. Determines retention + erasure rules. |
-| `retention_until` | Date | when `record_class ≠ none` | Earliest lawful disposal date. Curator refuses any destructive mutation before this date. |
-| `legal_hold` | Checkbox | ✔ (default false) | When true, **all** destructive mutations are refused regardless of dates. |
-| `pii` | Checkbox | ✔ (default false) | Note contains personal data (GDPR Art. 4). Gates GDPR workflows and can exclude note bodies from embedding export if policy requires. |
+| `record_class` | List (enum values) | ✔ | Regulatory bucket(s), always written as a **list** (`[none]`, `[sec-17a4]`, `[gdpr-personal, glba-npi]`). Values: `none`, `sec-17a4`, `glba-npi`, `gdpr-personal`, `gdpr-special`. **`none` is exclusive** — a note is either `[none]` or a list of one-or-more non-`none` classes, never both. When multiple classes apply, `retention_until` is the **maximum** of their computed dates (longest obligation wins). Derivation rules: `00-system/schema/retention-rules.md`. |
+| `retention_until` | Date | when `record_class ≠ [none]` | Earliest lawful disposal date, **derived** per `retention-rules.md` (never guessed). Curator refuses any destructive mutation before this date. |
+| `legal_hold` | Checkbox | ✔ (default false) | When true, **all** destructive mutations are refused regardless of dates. Truthy string forms (`"true"`, `"yes"`) are honored as true — never silently read as false. |
+| `hold_ref` | Text | when `legal_hold: true` | The hold's reference identifier (matter/ticket), so held records group by hold. Absent on unheld notes. |
+| `pii` | Checkbox | ✔ (default false) | Note contains personal data (GDPR Art. 4). Gates GDPR workflows and can exclude note bodies from embedding export if policy requires. Truthy strings honored as true. |
 
 **Regulatory rationale (encoded, not aspirational):**
 - **SEC 17a-4 audit-trail alternative.** The 2022 amendments allow, in place of WORM, an electronic recordkeeping system that preserves records so that <cite>an original record can be recreated if it is modified or deleted</cite>, with a complete time-stamped audit trail covering all modifications/deletions, the date/time of operator actions, and the individual responsible. This vault satisfies that via: (a) Git as the recordkeeping substrate — every accepted mutation is a signed commit identifying actor, timestamp, and full diff, permitting bit-exact recreation of any prior state; (b) the Curator's append-only audit log (§9) as the human-readable trail; (c) `retention_until` + `legal_hold` enforcement. Markdown satisfies the human-readable production requirement; the two-most-recent-years accessibility requirement is trivially met since the whole vault is live.
@@ -89,7 +90,8 @@ Properties are the typed metadata layer. **Tags never carry data that a property
 |---|---|---|
 | `up` | List of links | Parent concept(s) / broader term. The taxonomic hop for multi-hop traversal ("zoom out"). |
 | `related` | List of links | Lateral associations. Every entry SHOULD be mirrored by a `## Related` body line explaining *why* (see §5.3). |
-| `source` | List of links | Evidence chain → notes in `40-sources/`. The provenance hop. Claims without a `source` link are flagged by the Curator as `unverified`. |
+| `source` | List of links | Evidence chain → notes in `40-sources/`. The provenance hop. |
+| `verified` | Checkbox | ✔ on `note`/`source` claims (default false) | True when the note's claims trace to at least one `source` link. A curated `note` or `source` with `verified: false` (or no `source` edges) is the machine-queryable "unverified" state the Curator flags — `verified` makes provenance status a first-class filterable property, not just prose. The Curator sets it true only after confirming the source chain; never true without a `source` edge. |
 
 ### 3.4 Type-specific properties
 
@@ -105,7 +107,7 @@ Properties are the typed metadata layer. **Tags never carry data that a property
 
 **`daily`:** `date` (Date, = filename date).
 **`source`:** `author` (List), `published` (Date), `ingested` (Date), `doc_hash` (Text — SHA-256 of the original artifact for integrity attestation).
-**`entity`:** `entity_type` (Text: `person` · `org` · `system` · `regulation` · `project`).
+**`entity`:** `entity_type` (Text enum, **required on every `type: entity` note**): exactly one of `person` · `org` · `system` · `regulation` · `project`. This is the machine key for entity-hub uniqueness — the Curator enforces one canonical hub per `(entity_type, canonical-name)`. A `person` entity carrying personal data MUST also be `pii: true` and `classification: confidential` or higher.
 
 ### 3.5 `status` enums per type
 
@@ -222,4 +224,4 @@ Nothing else at initial state. Every future plugin addition is a Curator-gated s
 
 ## 9. Change Control
 
-This spec, the tag registry, the templates, and the `.base` files are **schema artifacts**. Mutating them requires: a written proposal note (`type: system`, `#kind/decision`), Curator review against the criteria in `curator.agent.md`, a changelog entry, and a version bump here. The Curator refuses schema mutations that lack a migration note for existing content.
+The **schema artifacts** are: this spec, the tag registry (`tag-registry.md`), the schema changelog (`schema-changelog.md`), the retention-rules table (`retention-rules.md`), the workflow registry (`workflow-registry.md`), the templates, and the `.base` files — all under `00-system/schema/` or `00-system/bases/` (and `00-system/templates/`). Mutating any of them requires: a written proposal note (`type: system`, `#kind/decision`), Curator review against the criteria in `curator.agent.md`, a changelog entry, and a version bump here. The Curator refuses schema mutations that lack a migration note for existing content.

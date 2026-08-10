@@ -1,0 +1,23 @@
+# curator-cadences.cron.template — scheduled stewardship for C-class workflows.
+# Copilot CLI hooks are event-driven; cadence runs (daily drain, weekly audits,
+# monthly sweeps) need a scheduler. Install with:
+#   deploy/schedule/install-cron.sh --vault /abs/path/vault
+# which expands {{VAULT}} and {{KIT}} and installs into the user crontab.
+#
+# Each line invokes a Curator/steward headlessly, plugin-scoped and deterministic.
+# COPILOT_PLUGIN_DIR_ONLY=true ensures only the vetted plugin loads (spec §8).
+
+# --- daily: inbox/daily drain (W12) — 06:15 every day ---
+15 6 * * *  cd {{VAULT}} && COPILOT_PLUGIN_DIR_ONLY=true copilot --plugin-dir {{KIT}}/vault-curator --agent housecleaning -p "Run the daily-drain skill on {{VAULT}}. Emit the drain report." >> {{VAULT}}/00-system/.cron.log 2>&1
+
+# --- weekly: orphan & staleness + graph integrity (W15,W16) — Mon 06:30 ---
+30 6 * * 1  cd {{VAULT}} && COPILOT_PLUGIN_DIR_ONLY=true copilot --plugin-dir {{KIT}}/vault-curator --agent maintenance -p "Run the weekly orphan/staleness and graph-integrity audits on {{VAULT}}. Emit reports; table proposals through the gate." >> {{VAULT}}/00-system/.cron.log 2>&1
+
+# --- weekly: drift detection + self-heal (W21) — Wed 06:30 ---
+30 6 * * 3  cd {{VAULT}} && COPILOT_PLUGIN_DIR_ONLY=true copilot --plugin-dir {{KIT}}/vault-curator --agent self-healing -p "Run schema_drift over {{VAULT}}; batch auto-repairs as gate proposals; escalate two-pass survivors. Emit the drift report." >> {{VAULT}}/00-system/.cron.log 2>&1
+
+# --- monthly: taxonomy review (W17) — 1st 07:00 ---
+0 7 1 * *   cd {{VAULT}} && COPILOT_PLUGIN_DIR_ONLY=true copilot --plugin-dir {{KIT}}/vault-curator --agent taxonomical-evolution -p "Run the taxonomy-review skill on {{VAULT}}. Emit merge/retire/add proposals with scope + migration notes." >> {{VAULT}}/00-system/.cron.log 2>&1
+
+# --- monthly: retention sweep (W18) — 1st 07:30 ---
+30 7 1 * *  cd {{VAULT}} && COPILOT_PLUGIN_DIR_ONLY=true copilot --plugin-dir {{KIT}}/vault-curator --agent curator -p "Run the retention-sweep skill on {{VAULT}}. Build the disposal docket for human sign-off; dispose nothing autonomously." >> {{VAULT}}/00-system/.cron.log 2>&1

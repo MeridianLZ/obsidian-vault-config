@@ -65,6 +65,7 @@ export class VaultIndex {
       const claim = (key: string) => {
         const prev = this.byTitle.get(key);
         if (prev === undefined) { this.byTitle.set(key, note.id); return; }
+        if (prev === note.id) return;   // same note re-claiming (title ≈ an alias) — not a collision
         const prevNote = this.notes.get(prev);
         const prevArchived = prevNote?.folder === "90-archive" || prevNote?.status === "archived";
         const thisArchived = note.folder === "90-archive" || note.status === "archived";

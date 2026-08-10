@@ -87,9 +87,21 @@ cat > "$TARGET/.gitignore" <<'EOF'
 *.tmp
 EOF
 
+# --- post-accept re-index hook (W22): signal the MCP server to rescan after each commit ---
+mkdir -p "$TARGET/.githooks"
+cat > "$TARGET/.githooks/post-commit" <<'HOOK'
+#!/usr/bin/env bash
+# Poke the vault-read MCP server to re-index after an accepted mutation.
+# Writes a sentinel the server watches (mtime-triggered rescan); harmless if the
+# server runs on-demand (it scans on boot).
+touch "$(git rev-parse --show-toplevel)/00-system/.reindex-request" 2>/dev/null || true
+HOOK
+chmod +x "$TARGET/.githooks/post-commit"
+
 # --- §8.6 git epoch ---
 if [ "$DO_GIT" = 1 ]; then
   if [ ! -d "$TARGET/.git" ]; then git -C "$TARGET" init -q; fi
+  git -C "$TARGET" config core.hooksPath .githooks
   git -C "$TARGET" add -A
   git -C "$TARGET" commit -q -m "vault: schema-complete initial state
 
