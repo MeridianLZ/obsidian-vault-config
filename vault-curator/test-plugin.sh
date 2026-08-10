@@ -44,6 +44,10 @@ echo '{"toolName":"shell","toolArgs":{"command":"ls -la 10-notes/"}}'     | $G |
 echo '{"toolName":"shell","toolArgs":{"command":"grep -r wire 10-notes/"}}' | $G | expect readonly-grep-allow '"allow"'
 echo '{"toolName":"shell","toolArgs":{"command":"git log --oneline 10-notes/x.md"}}' | $G | expect readonly-gitlog-allow '"allow"'
 echo '{"toolName":"shell","toolArgs":{"command":"echo x >> 10-notes/y.md"}}' | $G | expect shell-redirect-deny '"deny"'
+# --- L2-b: fence protects the backstop + security controls ---
+echo '{"toolName":"shell","toolArgs":{"command":"rm .githooks/pre-commit"}}' | $G | expect protect-backstop-rm '"deny"'
+echo '{"toolName":"edit","toolArgs":{"path":".githooks/pre-commit"}}' | $G | expect protect-backstop-edit '"deny"'
+echo '{"toolName":"edit","toolArgs":{"path":".github/hooks/vault-fence.json"}}' | $G | expect protect-fence-config '"deny"'
 # --- R1 evasion probes (command-string tricks) ---
 echo '{"toolName":"shell","toolArgs":{"command":"D=10-notes; echo x > $D/y.md"}}' | $G | expect var-indirect-deny '"deny"'
 echo '{"toolName":"shell","toolArgs":{"command":"rm -rf 10-note?/"}}' | $G | expect glob-deny '"deny"'

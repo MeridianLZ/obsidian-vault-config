@@ -45,7 +45,11 @@ const toolName = String(input.toolName ?? input.tool_name ?? "").toLowerCase();
 const args = input.toolArgs ?? input.tool_input ?? null;
 if (!toolName || args === null || typeof args !== "object") process.exit(2);
 
-const CURATED = ["10-notes","20-tasks","40-sources","50-entities","90-archive","00-system"];
+// Curated corpus + the security controls themselves: an agent must not be able to
+// delete the pre-commit backstop (`.githooks`, `.git/hooks`) or the fence/config and
+// then commit freely — that made layers 1+2 non-independent (audit L2-b).
+const CURATED = ["10-notes","20-tasks","40-sources","50-entities","90-archive","00-system",
+                 ".githooks",".git/hooks",".github/hooks",".github/agents",".github/copilot"];
 const allow = () => { console.log(JSON.stringify({ permissionDecision: "allow" })); process.exit(0); };
 const deny = (reason) => { console.log(JSON.stringify({ permissionDecision: "deny", permissionDecisionReason: reason })); process.exit(0); };
 

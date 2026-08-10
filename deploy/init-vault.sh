@@ -97,7 +97,9 @@ cat > "$TARGET/.githooks/pre-commit" <<'HOOK'
 #!/usr/bin/env bash
 # Reject staged changes under curated paths unless a live gate token authorizes them.
 set -uo pipefail
-CURATED_RE='^(10-notes|20-tasks|40-sources|50-entities|90-archive|00-system)/'
+# curated corpus + the security controls themselves (hooks, agent/config) — committing
+# a change to any of these needs an authorizing token (audit L2-b).
+CURATED_RE='^(10-notes|20-tasks|40-sources|50-entities|90-archive|00-system|\.githooks|\.github/hooks|\.github/agents|\.github/copilot)/'
 STAGED="$(git diff --cached --name-only || true)"
 CURATED_CHANGES="$(printf '%s\n' "$STAGED" | grep -E "$CURATED_RE" || true)"
 [ -z "$CURATED_CHANGES" ] && exit 0   # nothing curated staged → fine (inbox/daily/etc.)
@@ -112,7 +114,16 @@ if [ -n "$tok" ] && [ -f "$TOKENS/$tok" ]; then
   ok=1
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    case "$f" in 00-system/audit/*) continue;; esac   # audit line for this mutation
+    case "$f" in 00-system/audit/*)
+      # audit line rides along with the mutation it documents — but ONLY as an APPEND.
+      # Any deletion/modification of a prior line (a real '-' hunk line, not the '---'
+      # file header) is evidence tampering — refuse regardless of token (§4/§6.1).
+      if git diff --cached -U0 -- "$f" | grep -E '^-' | grep -qv '^--- '; then
+        echo "pre-commit: BLOCKED — non-append change to append-only audit file $f (17a-4 evidence)" >&2
+        exit 1
+      fi
+      continue;;
+    esac
     grep -q "\"$f\"" "$TOKENS/$tok" || ok=0
   done <<< "$CURATED_CHANGES"
   if [ "$ok" = 1 ]; then exit 0; fi   # authorized; token reaped by TTL (supports edit+commit)
