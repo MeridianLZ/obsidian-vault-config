@@ -14,7 +14,7 @@ Ship the governed Obsidian compliance-vault stack defined by the three root spec
 | P1 | vault-mcp read server (41 tools, angles 1–9) | ✅ done (6d7bbe0, 4b74e11) |
 | P2 | vault-curator Copilot CLI plugin (agents/skills/hooks/gate-server) | ✅ done (c66e906) |
 | P3 | Primary-agent `.copilot/skills/` + workflow-registry.md | ✅ done (99f9a34) |
-| P4 | Deployment wiring | ⏳ open — see gaps |
+| P4 | Deployment wiring | ⏳ ready to execute — audit-fixed, see DEPLOY.md |
 
 ## Current facts
 

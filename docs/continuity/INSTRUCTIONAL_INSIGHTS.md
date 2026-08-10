@@ -1,5 +1,30 @@
 # INSTRUCTIONAL INSIGHTS (append-only)
 
+## 2026-08-10 (self-review methodology)
+
+- **To review your own work objectively, don't wipe your context — fork a cold one.**
+  Compacting/clearing the author keeps the authorship blind spot AND loses the
+  knowledge needed to fix findings fast. A fresh-context subagent reading the repo
+  cold gives real objectivity; the author keeps full context to adjudicate + fix.
+  The cold-auditor independently confirmed the inline sweep AND found bypasses the
+  green test suite missed (it tested only the paths the regex was written for).
+- **Passing tests prove the paths you wrote, not the paths an attacker takes.**
+  The fence was 15/15 green while five reproducible bypasses existed. Security fixes
+  need adversarial probes as tests, not just happy-path coverage. Every closed
+  bypass became a regression probe (29-check battery).
+- **A monotonic-counter id derived from directory count collides across processes.**
+  gate-server used `readdirSync(QUEUE).length` — two instances mint the same id.
+  Time+random suffix is the boring correct fix.
+- **When a "smart" fix introduces a self-collision, guard the identity case first.**
+  Title-collision detection fired for a note colliding with its own alias (both
+  normalize to the same key). `if (prev === note.id) return` before any collision
+  logic. Fresh-vault schema_drift went from 3 false violations to 0.
+- **Air-gap deployability is a first-class requirement, not a footnote.** A native
+  module (better-sqlite3) makes the whole thing un-installable on the target. The
+  fix wasn't vendoring prebuilts — it was removing the native dep entirely
+  (node:sqlite) + shipping a committed bundle. Prefer built-ins that erase the
+  problem over tooling that manages it.
+
 ## 2026-08-10
 
 - **Spec-vs-machine-constraint conflicts: resolve in config, never in scope.**

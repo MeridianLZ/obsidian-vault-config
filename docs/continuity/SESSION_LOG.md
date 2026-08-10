@@ -1,5 +1,24 @@
 # SESSION LOG (newest first)
 
+## 2026-08-10 (cont.) — P4-readiness audit + full remediation
+
+- User asked for unbiased pre-P4 audit + context-window guidance. Decision: no
+  compact/clear (I authored the code — a compacted me keeps the authorship blind
+  spot and loses fix-context); instead spawned a FRESH-CONTEXT cold-auditor
+  (general-purpose subagent, reads repo cold) for objectivity + kept full context
+  to adjudicate/fix. This is the right pattern for self-review.
+- Auditor: 38 findings / 8 blockers / NOT-READY. Independently confirmed my inline
+  sweep. Key blockers: fence bypasses (absolute path, verbs, traversal, payload
+  keys), copilot-cli#2540 (plugin hooks may not fire), `${VAR:-default}` invalid in
+  .mcp.json, no air-gap-deployable artifact, 4 missing templates.
+- Fixed in 4 batches (commits 95ebfde→d9d3d36); each verified with runnable tests
+  before commit. schema_drift on a freshly-init'd vault = ok/0 violations.
+- Awaiting cold-auditor re-verification of the 8 blockers.
+- Biggest technical wins: node:sqlite (built-in FTS5) kills the native-module
+  air-gap blocker; esbuild single-file committed bundle = zero-install target;
+  deny-by-default fence with canonicalized paths + substring scan closes every
+  probed bypass; dual-source hooks (.github/hooks/ mirror) survive #2540.
+
 ## 2026-08-10 — Governance stack shipped end-to-end
 
 Order given: "3 then 2 [then] 1" — dedupe, MCP read surface, curator plugin — plus

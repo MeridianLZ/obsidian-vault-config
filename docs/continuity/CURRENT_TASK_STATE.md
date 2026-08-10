@@ -1,13 +1,30 @@
 # CURRENT TASK STATE
 
-**As of:** 2026-08-10 · **Branch:** main @ 99f9a34 · **Tree:** clean
+**As of:** 2026-08-10 · **Branch:** main @ d9d3d36 · **Tree:** clean
 
-All five session tasks complete. Nothing in flight.
+P4-readiness audit done + all findings fixed (4 batches). Awaiting cold-auditor
+re-verification of the 8 blockers. Nothing else in flight.
+
+## What happened this session (continued)
+
+Fresh-context cold-auditor + inline sweep found 38 findings / 8 blockers. Fixed:
+- **A (95ebfde)** fence rewrite: 6 bypasses closed, scoped tokens, dual-source hooks
+- **B (8369bed)** deployability: node:sqlite + committed esbuild bundle + init-vault
+  + install-plugin + marketplace (air-gap clean)
+- **C (a430996)** compliance: classification fail-closed, truthy flags, drafts in
+  registers, redaction path-withholding + 8 correctness bugs
+- **D (d9d3d36)** 4 templates, ontology pin-down, schema_drift enum coverage,
+  cron scheduler, DEPLOY.md
+
+Verify: fresh `init-vault` → schema_drift ok/0. Smoke 57 checks/3 clearances.
+Plugin battery 29/29. Bundle runs with node_modules absent.
 
 ## Resume point
 
-Next work = P4 deployment wiring (see PLANS.md P4): cadence scheduler, post-accept
-re-index, enterprise push, vault instantiation. None started; no partial state.
+If blockers confirmed CLOSED → P4 is executable: operator runs DEPLOY.md steps 1–5
+on the target machine. If any STILL-OPEN → fix before P4.
+Remaining known constraint (by policy, not defect): dense retrieval degraded (no
+local embedder on target).
 
 ## Verify-before-touching commands
 
