@@ -87,8 +87,44 @@ cat > "$TARGET/.gitignore" <<'EOF'
 *.tmp
 EOF
 
-# --- post-accept re-index hook (W22): signal the MCP server to rescan after each commit ---
+# --- AUTHORITATIVE backstop (audit R1): pre-commit inspects the ACTUAL staged diff.
+#     The regulated record is committed state; a working-tree mutation that slipped
+#     past the best-effort shell fence is caught here when it tries to become a
+#     commit. Curated-path changes are rejected unless a live gate token authorizes
+#     exactly those paths (the gate-server mints one per ACCEPT). ---
 mkdir -p "$TARGET/.githooks"
+cat > "$TARGET/.githooks/pre-commit" <<'HOOK'
+#!/usr/bin/env bash
+# Reject staged changes under curated paths unless a live gate token authorizes them.
+set -uo pipefail
+CURATED_RE='^(10-notes|20-tasks|40-sources|50-entities|90-archive|00-system)/'
+STAGED="$(git diff --cached --name-only || true)"
+CURATED_CHANGES="$(printf '%s\n' "$STAGED" | grep -E "$CURATED_RE" || true)"
+[ -z "$CURATED_CHANGES" ] && exit 0   # nothing curated staged → fine (inbox/daily/etc.)
+
+# audit dir is append-only and NEVER staged by a normal commit path except the Curator's
+DATA_DIR="${COPILOT_PLUGIN_DATA:-${HOME}/.copilot/plugin-data/vault-curator}"
+TOKENS="$DATA_DIR/tokens"
+tok="${GATE_TOKEN:-}"
+if [ -n "$tok" ] && [ -f "$TOKENS/$tok" ]; then
+  # token must cover every staged curated path (append-only audit lines under
+  # 00-system/audit/ ride along with the commit they document — allowed here).
+  ok=1
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    case "$f" in 00-system/audit/*) continue;; esac   # audit line for this mutation
+    grep -q "\"$f\"" "$TOKENS/$tok" || ok=0
+  done <<< "$CURATED_CHANGES"
+  if [ "$ok" = 1 ]; then exit 0; fi   # authorized; token reaped by TTL (supports edit+commit)
+fi
+echo "pre-commit: BLOCKED — curated-path changes without an authorizing gate token:" >&2
+printf '  %s\n' $CURATED_CHANGES >&2
+echo "Route this through the Curator gate (curator_propose). The git history is a 17a-4 audit trail." >&2
+exit 1
+HOOK
+chmod +x "$TARGET/.githooks/pre-commit"
+
+# --- post-accept re-index hook (W22): signal the MCP server to rescan after each commit ---
 cat > "$TARGET/.githooks/post-commit" <<'HOOK'
 #!/usr/bin/env bash
 # Poke the vault-read MCP server to re-index after an accepted mutation.
@@ -101,14 +137,16 @@ chmod +x "$TARGET/.githooks/post-commit"
 # --- §8.6 git epoch ---
 if [ "$DO_GIT" = 1 ]; then
   if [ ! -d "$TARGET/.git" ]; then git -C "$TARGET" init -q; fi
-  git -C "$TARGET" config core.hooksPath .githooks
   git -C "$TARGET" add -A
+  # The epoch IS the trusted initial state — commit it BEFORE activating the
+  # pre-commit fence (which would otherwise reject the schema files themselves).
   git -C "$TARGET" commit -q -m "vault: schema-complete initial state
 
 The audit-trail epoch (SEC 17a-4). Empty corpus, full schema: folder tree,
 templates, tag registry, bases, agent registrations." || echo "(nothing to commit)"
   git -C "$TARGET" tag -f v1.0.0-initial-state >/dev/null
-  echo "→ git epoch committed + tagged v1.0.0-initial-state"
+  git -C "$TARGET" config core.hooksPath .githooks   # activate fence AFTER the epoch
+  echo "→ git epoch committed + tagged v1.0.0-initial-state; pre-commit fence now active"
 fi
 
 echo "✓ vault initialized. Next: run deploy/install-plugin.sh, then open in Obsidian and enable community plugins (manual §7)."

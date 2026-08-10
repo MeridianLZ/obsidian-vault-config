@@ -78,6 +78,26 @@ node $KIT/vault-mcp/bin/vault-mcp.mjs --vault /abs/path/to/vault --clearance int
 # 4. gate round-trips — curator_propose a trivial note; expect ACCEPT with a commit + audit line.
 ```
 
+## Hardening — the fence is layered, and the outer layer is yours
+
+The mutation fence is **defense in depth**, strongest at the bottom:
+
+1. **preToolUse hook** (`guard-curated-paths.sh`) — best-effort: stops accidental and
+   prompt-injection writes, canonicalizes paths, denies-by-default on curated-path
+   shell commands. It **cannot** beat a deliberately evasive agent (runtime variable
+   indirection in a shell string is undecidable). Do not treat it as the whole control.
+2. **git pre-commit hook** (installed by `init-vault`) — authoritative on the *regulated*
+   state: it inspects the actual staged diff and rejects curated-path changes without a
+   live, path-scoped gate token. Anything that slips past layer 1 is caught here when it
+   tries to become a committed (17a-4) record. Verify: stage a change under `10-notes/`
+   and `git commit` — must be blocked.
+3. **OS-level isolation (REQUIRED for a hostile-agent threat model)** — run the Copilot/
+   agent process as a UID that has **no write permission** on the curated directories
+   (`10-notes 20-tasks 40-sources 50-entities 90-archive 00-system`), granting write only
+   to the gate-server's Curator subprocess. This is the only control that holds against an
+   agent actively trying to evade layers 1–2. Configure it before entrusting the vault with
+   regulated content.
+
 ## Known constraints (by design, not defects)
 
 - **Semantic/dense retrieval is degraded** — no local embedding model ships (the target machine bans local model weights). `search` runs sparse + lexical fallback and reports `status: degraded`. To enable dense recall, deploy an embedder on a disk-capable machine and pass `--embedder onnx:<path>` in `.mcp.json`.

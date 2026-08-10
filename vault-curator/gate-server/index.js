@@ -75,6 +75,16 @@ async function executeGate(p) {
     saveProposal(p);
     return;
   }
+  // Pre-mint the scoped gate token BEFORE the Curator runs, so its own edit+commit of
+  // the proposed paths pass the preToolUse fence AND the vault pre-commit hook. The
+  // token authorizes ONLY these targets, dies at TTL, and is passed solely to the
+  // trusted Curator subprocess. If the Curator REJECTs, it never commits and the token
+  // expires unused. (audit R1 — this makes the pre-commit backstop workable.)
+  const targets = p.kind === "bulk" ? (p.bulk_manifest ?? []) : [p.target].filter(Boolean);
+  const token = "gt_" + randomBytes(18).toString("base64url");
+  fs.writeFileSync(path.join(TOKENS, token), JSON.stringify({ proposal_id: p.proposal_id, targets }));
+  p.gate_token = token;
+
   const prompt = `Gate proposal ${p.proposal_id}: run curator.agent.md §2 steps 1–8 on the proposal staged at 01-inbox/_proposals/${p.proposal_id}/. Emit VERDICT JSON per the gate-mutation skill as the final output line.`;
   const args = ["--agent", "curator", "-p", prompt,
     "--allow-tool", "shell(git *)", "--allow-tool", "shell(grep *)",
@@ -82,7 +92,7 @@ async function executeGate(p) {
     "--deny-tool", "shell(git rebase*)", "--deny-tool", "shell(git push --force*)",
     "--deny-tool", "shell(git commit --amend*)"];
   const out = await new Promise((resolve) => {
-    const child = spawn(COPILOT, args, { cwd: VAULT, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(COPILOT, args, { cwd: VAULT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GATE_TOKEN: token } });
     let stdout = "", stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
     child.stderr.on("data", (d) => (stderr += d));
@@ -98,13 +108,11 @@ async function executeGate(p) {
       p.state = "decided";
       p.verdict = v;
       if (v.verdict === "ACCEPT") {
-        const token = "gt_" + randomBytes(18).toString("base64url");
-        // proposal- AND path-scoped: the fence only honors the token for these exact targets
-        const targets = p.kind === "bulk" ? (p.bulk_manifest ?? []) : [p.target].filter(Boolean);
-        fs.writeFileSync(path.join(TOKENS, token), JSON.stringify({ proposal_id: p.proposal_id, targets }));
-        p.verdict.gate_token = token;
+        p.verdict.gate_token = token;   // the pre-minted, scoped token (already consumed by the Curator's own commit)
+      } else {
+        try { fs.unlinkSync(path.join(TOKENS, token)); } catch { /* let TTL reap it */ }  // not accepted → revoke early
       }
-    } catch (e) { p.state = "error"; p.error = `verdict parse failed: ${e.message}`; }
+    } catch (e) { p.state = "error"; p.error = `verdict parse failed: ${e.message}`; try { fs.unlinkSync(path.join(TOKENS, token)); } catch {} }
   } else {
     p.state = "error";
     p.error = out.spawnError ? `copilot spawn failed: ${out.stderr}`

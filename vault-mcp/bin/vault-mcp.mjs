@@ -24658,8 +24658,9 @@ import * as path from "node:path";
 // src/types.ts
 var CLASS_ORDER = ["public", "internal", "confidential", "restricted"];
 function classRank(c) {
-  const i = CLASS_ORDER.indexOf(c ?? "internal");
-  return i === -1 ? 1 : i;
+  if (c == null) return 1;
+  const i = CLASS_ORDER.indexOf(c);
+  return i === -1 ? CLASS_ORDER.length - 1 : i;
 }
 function envelope(partial2) {
   return {

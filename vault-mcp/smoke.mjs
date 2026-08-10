@@ -5,7 +5,11 @@ import { spawn } from "node:child_process";
 import assert from "node:assert";
 
 const clearance = process.argv.includes("-c") ? process.argv[process.argv.indexOf("-c") + 1] : "restricted";
-const srv = spawn("node", ["dist/index.js", "--vault", "test-fixture", "--clearance", clearance], { stdio: ["pipe", "pipe", "inherit"] });
+// Default to the SHIPPED artifact (the committed bundle operators actually run),
+// so `npm test` exercises it and passes on a fresh air-gapped clone (audit R2).
+// Override with SMOKE_ENTRY=dist/index.js to test the raw tsc output.
+const entry = process.env.SMOKE_ENTRY ?? "bin/vault-mcp.mjs";
+const srv = spawn("node", [entry, "--vault", "test-fixture", "--clearance", clearance], { stdio: ["pipe", "pipe", "inherit"] });
 
 let buf = "";
 const pending = new Map();

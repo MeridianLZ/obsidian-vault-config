@@ -4,3 +4,4 @@ node_modules/
 dist/
 *.sqlite
 vault-mcp/test-fixture/
+

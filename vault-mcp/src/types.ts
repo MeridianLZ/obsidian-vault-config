@@ -4,8 +4,9 @@ export const CLASS_ORDER = ["public", "internal", "confidential", "restricted"] 
 export type Classification = (typeof CLASS_ORDER)[number];
 
 export function classRank(c: string | undefined): number {
-  const i = CLASS_ORDER.indexOf((c ?? "internal") as Classification);
-  return i === -1 ? 1 : i; // unknown → internal
+  if (c == null) return 1; // absent → internal (the documented default)
+  const i = CLASS_ORDER.indexOf(c as Classification);
+  return i === -1 ? CLASS_ORDER.length - 1 : i; // unknown value → most-restrictive (fail-closed, audit R4)
 }
 
 export interface NoteRecord {

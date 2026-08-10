@@ -7,7 +7,18 @@
 #
 # Deny-by-default: a shell command that references a curated path is denied
 # unless its verb is on the read-only allowlist. Paths are canonicalized
-# (absolute, ./, ../ traversal all normalize) before matching.
+# (absolute, ./, ../ traversal all normalize) and resolved against the call's
+# own cwd before matching; glob metacharacters and bare folder mentions are
+# treated as suspect.
+#
+# CEILING (read this): shell-command inspection is BEST-EFFORT. It cannot beat a
+# deliberately evasive agent — runtime variable indirection (`D=10-notes; …$D/`)
+# is undecidable from the command string. This fence stops accidental and
+# prompt-injection mutation, not a hostile agent. The AUTHORITATIVE control on
+# the regulated (committed) state is the vault's git `pre-commit` hook
+# (init-vault.sh installs it), which inspects the actual staged diff. The
+# definitive control against a hostile agent is OS-level: run the agent as a UID
+# without write permission on the curated dirs (DEPLOY.md "hardening").
 #
 # Payload compat: accepts both Copilot CLI keys (toolName/toolArgs) and
 # VS Code-style keys (tool_name/tool_input) — unknown shapes fail CLOSED.
@@ -38,9 +49,14 @@ const CURATED = ["10-notes","20-tasks","40-sources","50-entities","90-archive","
 const allow = () => { console.log(JSON.stringify({ permissionDecision: "allow" })); process.exit(0); };
 const deny = (reason) => { console.log(JSON.stringify({ permissionDecision: "deny", permissionDecisionReason: reason })); process.exit(0); };
 
+// The tool call cwd (when supplied) is where a relative path resolves — closes the
+// "cwd set to a curated dir + relative write" evasion (audit R1).
+const callCwd = typeof input.cwd === "string" && input.cwd ? input.cwd : vault;
 // --- canonicalize any path-like string to a vault-relative path, or null if outside vault ---
 function vaultRel(p) {
-  const abs = path.resolve(vault, String(p));           // handles absolute, ./, ../
+  const s = String(p);
+  // resolve against callCwd first (relative paths), then check vault containment
+  const abs = path.isAbsolute(s) ? path.normalize(s) : path.resolve(callCwd, s);
   const rel = path.relative(vault, abs);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null;  // outside vault
   return rel.split(path.sep).join("/");
@@ -50,8 +66,11 @@ const isInbox    = (rel) => rel !== null && (rel === "01-inbox" || rel.startsWit
 const isTodaysDaily = (rel) => rel === `30-daily/${today}.md`;
 const isDailyDir = (rel) => rel !== null && (rel === "30-daily" || rel.startsWith("30-daily/"));
 
-// --- gate-token verification: single-use, proposal- AND path-scoped, 10-minute TTL ---
+// --- gate-token verification: proposal- AND path-scoped, 10-minute TTL ---
 // Token file content (written by gate-server): {"proposal_id":"…","targets":["<vault-rel path>", …]}
+// Scoped+TTL, NOT single-use: one ACCEPT lets the Curator both edit AND commit the
+// SAME proposal paths within the window. Path-scoping (not single-use) is what closed
+// finding #9 — a token still authorizes ONLY its own targets, and dies at TTL.
 function tokenAuthorizes(rel) {
   const tok = process.env.GATE_TOKEN || args.gate_token;
   if (!tok || !/^gt_[A-Za-z0-9_-]+$/.test(tok)) return false;
@@ -62,16 +81,26 @@ function tokenAuthorizes(rel) {
     if (Date.now() - st.mtimeMs > 10 * 60 * 1000) { fs.unlinkSync(f); return false; }
     scope = JSON.parse(fs.readFileSync(f, "utf8"));
   } catch { return false; }
-  const ok = Array.isArray(scope.targets) &&
-    scope.targets.some((t) => t === rel || t === "*" && false);   // exact-path scope; no wildcards
-  if (ok) fs.unlinkSync(f);                                       // single-use: consume only on match
-  return ok;
+  return Array.isArray(scope.targets) && scope.targets.includes(rel);   // exact-path scope, no wildcards
 }
 
 // --- shell tools: deny-by-default when a curated path is referenced ---
 if (toolName === "shell" || toolName === "bash") {
   const cmd = String(args.command ?? args.cmd ?? "");
   if (!cmd) process.exit(2);
+
+  // If the command runs WITH cwd inside a curated dir and does anything that writes
+  // (redirect, or a non-read verb), deny — a bare relative filename there is a
+  // curated write (audit R1 cwd case). Read-only commands are still fine.
+  const cwdRel = vaultRel(callCwd);
+  if (isCurated(cwdRel) || (isDailyDir(cwdRel) && !isTodaysDaily(cwdRel))) {
+    const writes = /[>]|\btee\b|\b(rm|mv|cp|touch|truncate|dd|install|ln)\b|-i\b|-o\s/.test(cmd);
+    const readonlyWhole = /^\s*(command\s+)?(ls|cat|head|tail|wc|grep|rg|find|file|stat|diff|pwd|echo\s+[^>]*$|git\s+(status|log|diff|show|blame|rev-parse|grep|ls-files))\b[^>|]*$/.test(cmd);
+    if (writes && !readonlyWhole) {
+      const rel = cwdRel ?? "(curated cwd)";
+      if (!tokenAuthorizes(rel)) deny(`Shell command runs with cwd inside Curator-gated ${rel} and writes. Denied. (vault-curator fence)`);
+    }
+  }
 
   // 1. git history rewrite + working-tree mutation (these mutate curated files via git itself)
   const GIT_DENY = /\bgit\b[^|;&]*\b(rebase|--amend|push[^|;&]*(-f\b|--force|\+\S+:)|filter-(branch|repo)|reflog\s+(expire|delete)|update-ref|branch\s+(-f|--force)|checkout|restore|reset|clean|rm|mv|stash|apply|am\b|cherry-pick|revert|merge)\b/;
@@ -84,8 +113,13 @@ if (toolName === "shell" || toolName === "bash") {
   // quoted interpreter strings (python -c "open('10-notes/x.md')") the tokenizer splits wrong.
   const refs = extractPathRefs(cmd);
   const curatedRefs = refs.filter((r) => isCurated(r) || (isDailyDir(r) && !isTodaysDaily(r) && r !== "30-daily"));
+  // substring detector, tolerant of glob metacharacters in the folder name
+  // (e.g. `10-note?/`, `10-note[s]/`, `1?-notes/`) — audit R1.
+  const foldersGlobby = CURATED.map((c) => c.replace(/[a-z0-9]/g, "[$&?*\\[\\]]?")).join("|");
   const substringHit = new RegExp(`(^|[^\\w/])(${CURATED.join("|")})/`).test(cmd)
-    || new RegExp(`/(${CURATED.join("|")})/`).test(cmd);   // also matches inside an absolute path
+    || new RegExp(`/(${CURATED.join("|")})/`).test(cmd)
+    || new RegExp(`(^|[^\\w/])(${foldersGlobby})[/\\s]`).test(cmd)
+    || CURATED.some((c) => cmd.includes(c));   // any bare mention → treat as suspect (deny-by-default)
   if (curatedRefs.length || substringHit) {
     const READONLY = /^\s*(command\s+)?(ls|cat|head|tail|wc|grep|rg|find|file|stat|diff|md5|shasum|sha256sum|awk\b(?![^|;&]*-i)|sed\b(?![^|;&]*-i)|sort|uniq|cut|tr|jq|yq|less|more|open\s+-R|git\s+(status|log|diff|show|blame|rev-parse|grep|ls-files|shortlog|describe|cat-file))\b[^|;&<>]*$/;
     // single simple read-only command, no redirects/pipes-to-writes → allow; anything else needs a token
