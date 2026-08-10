@@ -1,37 +1,44 @@
-# PLANS
+# PLANS — Implementation Runbook
+
+**Phase:** P4 execution — stand up the live vault on the target machine and reach a
+fully functional, compliant knowledge base. The kit (design + build + audit
+remediation) is complete and pushed; see `docs/proto-implementation/continuity/` for
+that history.
 
 ## Goal
 
-Ship the governed Obsidian compliance-vault stack defined by the three root specs:
-`00-vault-initial-state.md` (schema constitution), `mcp-read-surface-spec.md` v2.0.0
-(read surface), `curator-plugin-spec.md` v1.0.0 (governance plugin).
+Execute `docs/initial-prompt.md` on the target and reach **GO** (all four acceptance
+checks pass), then complete the first knowledge-seeding session.
 
 ## Phases
 
 | Phase | Scope | Status |
 |---|---|---|
-| P0 | Repo dedupe, canonical layout | ✅ done (8c3ce8a, 2026-08-10) |
-| P1 | vault-mcp read server (41 tools, angles 1–9) | ✅ done (6d7bbe0, 4b74e11) |
-| P2 | vault-curator Copilot CLI plugin (agents/skills/hooks/gate-server) | ✅ done (c66e906) |
-| P3 | Primary-agent `.copilot/skills/` + workflow-registry.md | ✅ done (99f9a34) |
-| P4 | Deployment wiring | ⏳ ready to execute — audit-fixed, see DEPLOY.md |
+| I0 | Pre-flight on target (node≥24, copilot, git, disk) | ⏳ pending |
+| I1 | init-vault.sh → schema-complete vault + git epoch | ⏳ pending |
+| I2 | install-plugin.sh → servers + fence wired | ⏳ pending |
+| I3 | Obsidian: enable vendored community plugins (manual §7) | ⏳ pending |
+| I4 | Cadence scheduler (install-cron.sh) | ⏳ pending |
+| I5 | Acceptance checks 1–4 → GO/NO-GO | ⏳ pending |
+| I6 | Hardening: verify fence fires on target CLI; layer-3 OS UID isolation | ⏳ pending |
+| I7 | First knowledge-seeding session (brainstorm entities/tags/sources → gate) | ⏳ pending |
 
 ## Current facts
 
-- Stack: TypeScript, `@modelcontextprotocol/sdk` 1.30, **node:sqlite** built-in FTS5 (was better-sqlite3 — swapped for air-gap after audit), esbuild committed bundle `vault-mcp/bin/vault-mcp.mjs`, zero-dep gate-server.
-- Copilot CLI GA (2026-02-25); hooks built to GA schema (`{version:1, hooks:{preToolUse:[…]}}`, `permissionDecision` output, exit-2 fail-closed) — spec §5 sketch predates GA.
-- Semantic angle degraded-by-config on largo (no local models rule); embedder pluggable (`--embedder onnx:<path>` elsewhere).
-- Vault itself does not exist yet as a live instance — repo is the kit; constitution §8 checklist executes at deployment.
+- Bootstrap prompt: `docs/initial-prompt.md`. Runbook SSoT: `DEPLOY.md`.
+- Kit repo pushed: `github:/zautke/obsidian-vault-config` @ `e3bcb57`.
+- Deploy is deterministic scripts — no planning agent for it. Seed-context is
+  designed-in (sessionStart hook + `get_vault_guide`).
 
-## Non-goals
+## Non-goals (this phase)
 
-- C# hybrid-search in-app plugin (spec §12 parity matrix) — separate deliverable, not started, not requested.
-- Local embedding models on largo — permanently banned (disk).
-- Live Copilot seat acceptance runs (spec §9 lanes A/B) — needs a seat.
+- Changing the kit/specs — those are ratified. Bugs found during I-phases route back
+  as gated fixes, but scope is execution, not redesign.
+- Dense/semantic retrieval on the target — degraded by policy (local-model ban).
 
-## P4 open items (from workflow-registry.md Gaps)
+## The one risk to watch
 
-1. Cadence scheduler: cron/CI → headless `copilot --agent <steward>` runs (W12, W15–W18, W21, W24).
-2. Post-accept re-index trigger (git post-commit → vault-mcp rescan) (W22).
-3. Enterprise `managed-settings.json` push + internal marketplace.json (spec §7).
-4. Vault instantiation per constitution §8 checklist.
+Acceptance check #1: does the `.github/hooks/` fence actually fire on the target's
+Copilot CLI version (copilot-cli#2540)? If not, NO-GO until escalated to a policy-level
+hook source or layer-3 OS isolation is configured. Do not trust the vault with
+regulated content before this passes.
