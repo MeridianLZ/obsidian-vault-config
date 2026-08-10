@@ -18,7 +18,7 @@ Ship the governed Obsidian compliance-vault stack defined by the three root spec
 
 ## Current facts
 
-- Stack: TypeScript, `@modelcontextprotocol/sdk` 1.30 (v1 stable; v2 = `@modelcontextprotocol/server`, 2026-07-28 spec), better-sqlite3 FTS5, zero-dep gate-server.
+- Stack: TypeScript, `@modelcontextprotocol/sdk` 1.30, **node:sqlite** built-in FTS5 (was better-sqlite3 — swapped for air-gap after audit), esbuild committed bundle `vault-mcp/bin/vault-mcp.mjs`, zero-dep gate-server.
 - Copilot CLI GA (2026-02-25); hooks built to GA schema (`{version:1, hooks:{preToolUse:[…]}}`, `permissionDecision` output, exit-2 fail-closed) — spec §5 sketch predates GA.
 - Semantic angle degraded-by-config on largo (no local models rule); embedder pluggable (`--embedder onnx:<path>` elsewhere).
 - Vault itself does not exist yet as a live instance — repo is the kit; constitution §8 checklist executes at deployment.
