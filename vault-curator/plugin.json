@@ -1,0 +1,12 @@
+{
+  "name": "vault-curator",
+  "description": "Curator-gated governance for the compliance knowledge vault: gate agent + specialty stewardship agents, mutation fence hooks, drain/sweep/erasure skills, and the curator-gate + vault-read MCP servers.",
+  "version": "1.0.0",
+  "author": { "name": "Knowledge Systems", "email": "ks@example-fi.internal" },
+  "license": "Proprietary",
+  "keywords": ["obsidian", "governance", "curation", "glba", "sec-17a4", "gdpr"],
+  "agents": "agents/",
+  "skills": "skills/",
+  "hooks": "hooks/hooks.json",
+  "mcpServers": ".mcp.json"
+}

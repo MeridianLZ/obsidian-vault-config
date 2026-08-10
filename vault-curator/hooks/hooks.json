@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "hooks/scripts/session-vault-guide.sh",
+        "timeoutSec": 15
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "hooks/scripts/guard-curated-paths.sh",
+        "matcher": "edit|write|str_replace_editor|create|shell|bash",
+        "timeoutSec": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "hooks/scripts/audit-emit.sh",
+        "matcher": "edit|write|str_replace_editor|create",
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "hooks/scripts/prompt-injection-scan.sh",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}
