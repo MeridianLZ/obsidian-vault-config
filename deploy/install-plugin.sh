@@ -58,6 +58,31 @@ cat > "$VAULT/.mcp.json" <<EOF
 EOF
 echo "→ wrote $VAULT/.mcp.json (absolute paths, clearance=$CLEAR)"
 
+# --- also write the plugin's own .mcp.json with absolute paths (plugin activation
+#     path; plugin.json still declares mcpServers per spec §4, but Copilot CLI cannot
+#     expand ${VAR}, so the paths must be concrete). Single writer = this installer. ---
+cat > "$KIT/vault-curator/.mcp.json" <<EOF
+{
+  "_comment": "INSTALLER-MANAGED (deploy/install-plugin.sh). Absolute paths — Copilot CLI does not expand \${VAR}.",
+  "mcpServers": {
+    "vault-read": {
+      "type": "local",
+      "command": "$NODE",
+      "args": ["$BUNDLE", "--vault", "$VAULT", "--clearance", "$CLEAR"],
+      "tools": ["*"]
+    },
+    "curator-gate": {
+      "type": "local",
+      "command": "$NODE",
+      "args": ["$GATE", "--vault", "$VAULT"],
+      "tools": ["curator_propose", "curator_status", "curator_report", "curator_invoke"]
+    }
+  }
+}
+EOF
+echo "→ patched $KIT/vault-curator/.mcp.json (plugin activation path, absolute)"
+echo "  NOTE: choose ONE activation path (plugin OR repo-level) so the servers register once — see DEPLOY.md Step 2."
+
 # --- plugin registration ---
 if [ "$DEV" = 1 ]; then
   if command -v copilot >/dev/null; then
