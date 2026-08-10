@@ -38,9 +38,10 @@ const QUEUE = path.join(DATA, "proposals");
 for (const d of [DATA, TOKENS, QUEUE]) fs.mkdirSync(d, { recursive: true });
 
 // ---------- proposal store ----------
-let seq = fs.readdirSync(QUEUE).length;
+// id = date + monotonic-ish suffix + random tail: collision-safe across concurrent
+// server instances sharing one COPILOT_PLUGIN_DATA (audit finding #28)
 function newProposalId() {
-  return `P-${new Date().toISOString().slice(0, 10)}-${String(++seq).padStart(4, "0")}`;
+  return `P-${new Date().toISOString().slice(0, 10)}-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 }
 const pfile = (id) => path.join(QUEUE, `${id}.json`);
 function loadProposal(id) {
@@ -49,9 +50,16 @@ function loadProposal(id) {
 function saveProposal(p) { fs.writeFileSync(pfile(p.proposal_id), JSON.stringify(p, null, 1)); }
 
 // ---------- single-flight gate execution (git commits are the linearization point) ----------
+// Errors never leave a proposal stuck in "queued": failures record state:"error" (#29)
 let gateChain = Promise.resolve();
 function runGate(proposal) {
-  gateChain = gateChain.then(() => executeGate(proposal)).catch(() => {});
+  gateChain = gateChain
+    .then(() => executeGate(proposal))
+    .catch((e) => {
+      proposal.state = "error";
+      proposal.error = `gate execution threw: ${e?.message ?? e}`;
+      try { saveProposal(proposal); } catch { /* disk gone; nothing left to record to */ }
+    });
   return gateChain;
 }
 
@@ -91,7 +99,9 @@ async function executeGate(p) {
       p.verdict = v;
       if (v.verdict === "ACCEPT") {
         const token = "gt_" + randomBytes(18).toString("base64url");
-        fs.writeFileSync(path.join(TOKENS, token), p.proposal_id);
+        // proposal- AND path-scoped: the fence only honors the token for these exact targets
+        const targets = p.kind === "bulk" ? (p.bulk_manifest ?? []) : [p.target].filter(Boolean);
+        fs.writeFileSync(path.join(TOKENS, token), JSON.stringify({ proposal_id: p.proposal_id, targets }));
         p.verdict.gate_token = token;
       }
     } catch (e) { p.state = "error"; p.error = `verdict parse failed: ${e.message}`; }
