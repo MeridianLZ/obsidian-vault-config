@@ -16,7 +16,7 @@
 
 | # | Workflow | Defined in | Idempotent | Class | Enforcement mechanism | Verified by |
 |---|---|---|---|---|---|---|
-| W01 | Curated-path mutation fence | curator-plugin-spec §5; `guard-curated-paths.sh` | ✔ (pure decision) | **H** | `preToolUse` deny w/o live gate token; exit-2 fail-closed | `test-plugin.sh` (11 fence checks) |
+| W01 | Curated-path mutation fence (LAYERED) | curator-plugin-spec §5; `guard-curated-paths.sh` + vault `pre-commit` | ✔ (pure decision) | **H** | L1 `preToolUse` best-effort deny (canonicalized paths, deny-by-default verbs); L2 `pre-commit` authoritative on committed state (staged-diff inspection, path-scoped token); L3 OS UID isolation (deploy-required for hostile agent) | `test-plugin.sh` (33 checks incl. bypass probes) + pre-commit 5-case test |
 | W02 | Git history immutability (no rebase/amend/force-push; audit dir append-only) | curator.agent.md §4 | ✔ | **H** | `preToolUse` command-pattern deny | `test-plugin.sh` |
 | W03 | Gate token lifecycle (single-use, proposal-scoped, 10-min TTL) | curator-plugin-spec §5 | ✔ (consume-once) | **H** | token file mint (gate-server) + consume-on-check (guard script) | `test-plugin.sh` token-allow/token-single-use |
 | W04 | Session schema-awareness injection | curator-plugin-spec §5 | ✔ | **H** | `sessionStart` → `session-vault-guide.sh` additionalContext | `test-plugin.sh` guide-inject |

@@ -1,9 +1,15 @@
 # CURRENT TASK STATE
 
-**As of:** 2026-08-10 · **Branch:** main @ d9d3d36 · **Tree:** clean
+**As of:** 2026-08-10 · **Branch:** main @ cef04a0 · **Tree:** clean
 
-P4-readiness audit done + all findings fixed (4 batches). Awaiting cold-auditor
-re-verification of the 8 blockers. Nothing else in flight.
+P4-readiness audit + full remediation DONE. Cold-auditor independently re-verified
+all 8 blockers + 3 compliance HIGHs CLOSED; its 5 residuals (R1-R5) all addressed
+(R5 moot — scripts symlinked). READY for P4. Nothing in flight.
+
+Layered fence now: L1 preToolUse (best-effort, bypass-hardened), L2 git pre-commit
+(authoritative on committed state, path-scoped tokens), L3 OS UID isolation
+(deploy-required, documented DEPLOY.md). Gate tokens scoped+TTL (not single-use)
+so Curator edit+commit of one ACCEPT both pass.
 
 ## What happened this session (continued)
 
